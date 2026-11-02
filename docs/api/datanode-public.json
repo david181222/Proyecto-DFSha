@@ -1,0 +1,445 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "DFSha · DataNode público",
+    "description": "API pública del DataNode (puerto 9443, HTTPS). Contrato legible en docs/contratos.md.",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/v1/blocks/{hash}": {
+      "put": {
+        "tags": [
+          "blocks"
+        ],
+        "summary": "Enviar un bloque al primario",
+        "description": "El primario recibe el bloque en un temporal, verifica el hash, lo cifra con AES-256-GCM, hace fsync y lo renombra; luego lo reenvía a los secundarios del pase (puerto 9444; 2, o 1 si solo quedan 2 DataNodes vivos), espera hasta DFS_PRIMARY_WAIT_S, confirma al MetaServer y responde dónde quedó. 400 E_BAD_REQUEST si el cuerpo pasa de DFS_BLOCK_MIB MiB. 422 E_CHECKSUM si el contenido no coincide con el hash; 422 E_REPLICAS si no logró W copias o si la confirmación dice que no cubren 2 zonas; ambos reintentables con realloc. DA-03, DA-04, DA-09.",
+        "operationId": "put_block",
+        "security": [
+          {
+            "BlockPass": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "hash",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$",
+              "description": "SHA-256 del bloque sin cifrar (DA-02).",
+              "title": "Hash"
+            },
+            "description": "SHA-256 del bloque sin cifrar (DA-02)."
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlockStoredResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_BAD_REQUEST": {
+                    "value": {
+                      "error": "E_BAD_REQUEST",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`E_AUTH`: JWT ausente, inválido o vencido, o pase ausente o vencido.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_AUTH": {
+                    "value": {
+                      "error": "E_AUTH",
+                      "message": "JWT ausente, inválido o vencido, o pase ausente o vencido",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`E_FORBIDDEN`: pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_FORBIDDEN": {
+                    "value": {
+                      "error": "E_FORBIDDEN",
+                      "message": "pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`E_CHECKSUM`: el contenido no coincide con el hash, o la copia guardada está dañada. `E_REPLICAS`: no hay 2 copias confirmadas en zonas distintas.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_CHECKSUM": {
+                    "value": {
+                      "error": "E_CHECKSUM",
+                      "message": "el contenido no coincide con el hash, o la copia guardada está dañada",
+                      "retryable": true
+                    }
+                  },
+                  "E_REPLICAS": {
+                    "value": {
+                      "error": "E_REPLICAS",
+                      "message": "no hay 2 copias confirmadas en zonas distintas",
+                      "retryable": true
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_UNAVAILABLE": {
+                    "value": {
+                      "error": "E_UNAVAILABLE",
+                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "retryable": true
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "`E_NO_SPACE`: sin espacio en los DataNodes.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_NO_SPACE": {
+                    "value": {
+                      "error": "E_NO_SPACE",
+                      "message": "sin espacio en los DataNodes",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "blocks"
+        ],
+        "summary": "Leer un bloque",
+        "description": "Descifra el bloque guardado y lo devuelve en binario, sin cifrar. Exige un pase de lectura. Si la copia está dañada (falla AES-GCM o el hash no coincide), responde 422 E_CHECKSUM, la borra y la reporta en bad_blocks de su siguiente latido; el cliente prueba la siguiente réplica. DA-09, DA-10, DA-12.",
+        "operationId": "get_block",
+        "security": [
+          {
+            "BlockPass": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "hash",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$",
+              "description": "SHA-256 del bloque sin cifrar (DA-02).",
+              "title": "Hash"
+            },
+            "description": "SHA-256 del bloque sin cifrar (DA-02)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Contenido del bloque, sin cifrar.",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`E_AUTH`: JWT ausente, inválido o vencido, o pase ausente o vencido.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_AUTH": {
+                    "value": {
+                      "error": "E_AUTH",
+                      "message": "JWT ausente, inválido o vencido, o pase ausente o vencido",
+                      "retryable": false
+                    }
+                  }
+                }
+              },
+              "application/octet-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`E_FORBIDDEN`: pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_FORBIDDEN": {
+                    "value": {
+                      "error": "E_FORBIDDEN",
+                      "message": "pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario",
+                      "retryable": false
+                    }
+                  }
+                }
+              },
+              "application/octet-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`E_NOT_FOUND`: ruta, bloque o lease inexistente.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_NOT_FOUND": {
+                    "value": {
+                      "error": "E_NOT_FOUND",
+                      "message": "ruta, bloque o lease inexistente",
+                      "retryable": false
+                    }
+                  }
+                }
+              },
+              "application/octet-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`E_CHECKSUM`: el contenido no coincide con el hash, o la copia guardada está dañada.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_CHECKSUM": {
+                    "value": {
+                      "error": "E_CHECKSUM",
+                      "message": "el contenido no coincide con el hash, o la copia guardada está dañada",
+                      "retryable": true
+                    }
+                  }
+                }
+              },
+              "application/octet-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Estado del proceso",
+        "description": "Responde si el proceso está arriba. Sin autenticación.",
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "BlockStoredResponse": {
+        "properties": {
+          "hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Hash",
+            "description": "SHA-256 en hexadecimal minúscula (DA-02)"
+          },
+          "stored_on": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Stored On",
+            "description": "node_id donde quedó el bloque, empezando por el primario"
+          }
+        },
+        "type": "object",
+        "required": [
+          "hash",
+          "stored_on"
+        ],
+        "title": "BlockStoredResponse",
+        "examples": [
+          {
+            "hash": "b64bb9046f61749097db060781bcbbba317c08ff0ac378e9aed9a6d18217e449",
+            "stored_on": [
+              "dn3",
+              "dn4",
+              "dn1"
+            ]
+          }
+        ]
+      },
+      "ErrorCode": {
+        "type": "string",
+        "enum": [
+          "E_BAD_REQUEST",
+          "E_AUTH",
+          "E_FORBIDDEN",
+          "E_NOT_FOUND",
+          "E_EXISTS",
+          "E_NOT_EMPTY",
+          "E_VERSION_CONFLICT",
+          "E_LOCK_LOST",
+          "E_CHECKSUM",
+          "E_REPLICAS",
+          "E_LOCKED",
+          "E_INTERNAL",
+          "E_NOT_IMPLEMENTED",
+          "E_UNAVAILABLE",
+          "E_NO_SPACE"
+        ],
+        "title": "ErrorCode"
+      },
+      "ErrorResponse": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorCode"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "retryable": {
+            "type": "boolean",
+            "title": "Retryable"
+          }
+        },
+        "type": "object",
+        "required": [
+          "error",
+          "message",
+          "retryable"
+        ],
+        "title": "ErrorResponse",
+        "description": "Cuerpo de toda respuesta de error (DA-06).",
+        "examples": [
+          {
+            "error": "E_VERSION_CONFLICT",
+            "message": "la versión base 3 ya no es la actual (4)",
+            "retryable": false
+          }
+        ]
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ok",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "HealthResponse",
+        "examples": [
+          {
+            "status": "ok"
+          }
+        ]
+      }
+    },
+    "securitySchemes": {
+      "BlockPass": {
+        "type": "http",
+        "description": "Pase del bloque que entrega el MetaServer, en Authorization: Bearer (DA-10). Ausente o vencido (con firma válida): 401 E_AUTH. Mal formado, con firma inválida, de otro hash o de otra operación: 403 E_FORBIDDEN.",
+        "scheme": "bearer",
+        "bearerFormat": "base64url(json).base64url(hmac_sha256(json))"
+      }
+    }
+  }
+}

@@ -1,0 +1,58 @@
+# El repositorio es público (DA-15): nada secreto puede entrar en él.
+# Los secretos los genera el script de despliegue fuera del repositorio (DA-10).
+
+# --- Variables de entorno reales: solo se sube .env.example ---
+.env
+.env.*
+!.env.example
+
+# --- Llaves y certificados: CA propia, certificados de nodo, llave del laboratorio ---
+*.pem
+*.key
+*.crt
+*.csr
+*.srl
+*.p12
+*.pfx
+*.ppk
+labsuser.pem
+labsuser.ppk
+id_rsa*
+id_ed25519*
+
+# --- Archivos de secretos que leen los servicios (DFS_*_FILE) y carpetas donde se generan ---
+jwt_secret
+pass_key
+node_key
+admin_password
+secrets/
+certs/
+
+# --- Credenciales de AWS del Learner Lab ---
+.aws/
+credentials
+aws_credentials*
+
+# --- Datos locales: bloques de un DataNode y datos de etcd corriendo en la máquina ---
+/data/
+*.etcd/
+*.log
+
+# --- Python ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# --- Editores, sistema operativo y configuración local de Claude Code ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+.claude/settings.local.json

@@ -1,0 +1,219 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "DFSha · DataNode interno",
+    "description": "API interna del DataNode (puerto 9444, mTLS). Contrato legible en docs/contratos.md.",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/v1/internal/blocks/{user}/{hash}": {
+      "put": {
+        "tags": [
+          "internal"
+        ],
+        "summary": "Guardar una copia de un bloque",
+        "description": "Recibe el bloque sin cifrar, verifica el hash, lo cifra con la clave de este nodo, hace fsync y lo renombra. 400 E_BAD_REQUEST si el cuerpo pasa de DFS_BLOCK_MIB MiB; 422 E_CHECKSUM si el contenido no coincide con el hash. DA-03, DA-04, DA-09, DA-12.",
+        "operationId": "put_replica",
+        "parameters": [
+          {
+            "name": "user",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9_-]{1,32}$",
+              "description": "Dueño del bloque.",
+              "title": "User"
+            },
+            "description": "Dueño del bloque."
+          },
+          {
+            "name": "hash",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$",
+              "description": "SHA-256 del bloque sin cifrar (DA-02).",
+              "title": "Hash"
+            },
+            "description": "SHA-256 del bloque sin cifrar (DA-02)."
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReplicaStoredResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_BAD_REQUEST": {
+                    "value": {
+                      "error": "E_BAD_REQUEST",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`E_CHECKSUM`: el contenido no coincide con el hash, o la copia guardada está dañada.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_CHECKSUM": {
+                    "value": {
+                      "error": "E_CHECKSUM",
+                      "message": "el contenido no coincide con el hash, o la copia guardada está dañada",
+                      "retryable": true
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "`E_NO_SPACE`: sin espacio en los DataNodes.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_NO_SPACE": {
+                    "value": {
+                      "error": "E_NO_SPACE",
+                      "message": "sin espacio en los DataNodes",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "mTLS": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ErrorCode": {
+        "type": "string",
+        "enum": [
+          "E_BAD_REQUEST",
+          "E_AUTH",
+          "E_FORBIDDEN",
+          "E_NOT_FOUND",
+          "E_EXISTS",
+          "E_NOT_EMPTY",
+          "E_VERSION_CONFLICT",
+          "E_LOCK_LOST",
+          "E_CHECKSUM",
+          "E_REPLICAS",
+          "E_LOCKED",
+          "E_INTERNAL",
+          "E_NOT_IMPLEMENTED",
+          "E_UNAVAILABLE",
+          "E_NO_SPACE"
+        ],
+        "title": "ErrorCode"
+      },
+      "ErrorResponse": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorCode"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "retryable": {
+            "type": "boolean",
+            "title": "Retryable"
+          }
+        },
+        "type": "object",
+        "required": [
+          "error",
+          "message",
+          "retryable"
+        ],
+        "title": "ErrorResponse",
+        "description": "Cuerpo de toda respuesta de error (DA-06).",
+        "examples": [
+          {
+            "error": "E_VERSION_CONFLICT",
+            "message": "la versión base 3 ya no es la actual (4)",
+            "retryable": false
+          }
+        ]
+      },
+      "ReplicaStoredResponse": {
+        "properties": {
+          "hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Hash",
+            "description": "SHA-256 en hexadecimal minúscula (DA-02)"
+          },
+          "node_id": {
+            "type": "string",
+            "title": "Node Id",
+            "description": "DataNode que guardó la copia"
+          }
+        },
+        "type": "object",
+        "required": [
+          "hash",
+          "node_id"
+        ],
+        "title": "ReplicaStoredResponse",
+        "examples": [
+          {
+            "hash": "b64bb9046f61749097db060781bcbbba317c08ff0ac378e9aed9a6d18217e449",
+            "node_id": "dn4"
+          }
+        ]
+      }
+    },
+    "securitySchemes": {
+      "mTLS": {
+        "type": "mutualTLS",
+        "description": "TLS mutuo con un certificado de servidor firmado por la CA propia (DA-06, DA-11)."
+      }
+    }
+  }
+}

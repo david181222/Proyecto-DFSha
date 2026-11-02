@@ -1,0 +1,469 @@
+"""MetaServer · API pública (puerto 8443, HTTPS).
+
+La usan el cliente dfs y, para descubrir MetaServers, los DataNodes (DA-11).
+Todas las rutas cuelgan de /api/v1 y llevan Authorization: Bearer <JWT>, salvo
+login, la lista de MetaServers y health.
+
+Toda ruta de archivo se resuelve dentro del espacio del usuario del token, así que
+aquí no existe "ruta de otro usuario". 403 E_FORBIDDEN solo aparece en /admin sin
+rol de administrador y con un lock_id o upload_id de otro usuario.
+
+Por ahora son stubs. Tienen su firma, su modelo de respuesta y sus errores, pero
+responden 501 E_NOT_IMPLEMENTED; solo GET /health funciona.
+Correr en local: uvicorn metaserver.public_api:app --port 8443
+"""
+
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Header, Path, Query
+from fastapi.security import HTTPBearer
+from pydantic import AfterValidator
+
+from dfs_common.app import create_app
+from dfs_common.errors import DFSError, ErrorCode, error_responses
+from dfs_common.models import (
+    PATH_RULES,
+    AdminStatusResponse,
+    CommitRequest,
+    CommitResponse,
+    CreateUserRequest,
+    FileBlocksResponse,
+    HealthResponse,
+    LockRequest,
+    LockResponse,
+    LoginRequest,
+    LoginResponse,
+    LsResponse,
+    MetaServerListResponse,
+    MkdirRequest,
+    OkResponse,
+    ReallocRequest,
+    ReallocResponse,
+    StatResponse,
+    UploadRequest,
+    UploadResponse,
+    check_dfs_path,
+)
+
+# auto_error=False: si falta el token, la ruta (no FastAPI) responde 401 E_AUTH.
+jwt_auth = HTTPBearer(
+    auto_error=False,
+    scheme_name="JWT",
+    bearerFormat="JWT",
+    description="JWT de POST /api/v1/auth/login, en Authorization: Bearer (DA-10).",
+)
+JWT = [Depends(jwt_auth)]
+
+# Una ruta inválida responde 400 E_BAD_REQUEST (check_dfs_path).
+PathQuery = Annotated[
+    str,
+    AfterValidator(check_dfs_path),
+    Query(description=PATH_RULES, examples=["/docs/informe.pdf"]),
+]
+
+
+def check_not_root(path: str) -> str:
+    """La raíz / existe siempre: rmdir / (y rm /, porque es un directorio) responden 400."""
+    if path == "/":
+        raise ValueError("la raíz / no se puede borrar")
+    return path
+
+
+RemovablePathQuery = Annotated[
+    str,
+    AfterValidator(check_dfs_path),
+    AfterValidator(check_not_root),
+    Query(description=f"{PATH_RULES}. No puede ser la raíz /.", examples=["/docs/informe.pdf"]),
+]
+
+LockIdPath = Annotated[str, Path(description="lock_id que entregó POST /locks.", examples=["694d8a1c2e3b4f05"])]
+UploadIdPath = Annotated[
+    str,
+    Path(description="upload_id que entregó POST /uploads.", examples=["9b2f6d1e-4c3a-4e8b-9f1d-2a7c5e8b1d43"]),
+]
+
+router = APIRouter(prefix="/api/v1")
+
+
+# --- Autenticación y descubrimiento ---
+
+
+@router.post(
+    "/auth/login",
+    response_model=LoginResponse,
+    tags=["auth"],
+    summary="Iniciar sesión",
+    description="Verifica la contraseña (Argon2id) y entrega un JWT que dura DFS_JWT_TTL_S. Sin autenticación. DA-10.",
+    responses=error_responses(ErrorCode.E_BAD_REQUEST, ErrorCode.E_AUTH, ErrorCode.E_UNAVAILABLE),
+)
+def login(body: LoginRequest):
+    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+
+
+@router.get(
+    "/cluster/metaservers",
+    response_model=MetaServerListResponse,
+    tags=["cluster"],
+    summary="Listar MetaServers vivos",
+    description=(
+        "Lista actual de MetaServers vivos, leída de /nodes/meta/ en etcd, dentro del objeto "
+        "{metaservers}. El cliente usa public_port y los DataNodes internal_port. Sin autenticación. DA-11."
+    ),
+    responses=error_responses(ErrorCode.E_UNAVAILABLE),
+)
+def list_metaservers():
+    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+
+
+# --- Sistema de archivos (RF1) ---
+
+
+@router.get(
+    "/fs/ls",
+    response_model=LsResponse,
+    tags=["fs"],
+    summary="Listar un directorio",
+    description=(
+        "Entradas del directorio con nombre, tipo, tamaño, versión y fecha. La raíz / existe siempre. "
+        "Sobre un archivo devuelve ese archivo como única entrada, como ls archivo en Linux. RF1."
+    ),
+    dependencies=JWT,
+    responses=error_responses(
+        ErrorCode.E_BAD_REQUEST,
+        ErrorCode.E_AUTH,
+        ErrorCode.E_NOT_FOUND,
+        ErrorCode.E_UNAVAILABLE,
+    ),
+)
+def ls(path: PathQuery):
+    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+
+
+@router.get(
+    "/fs/stat",
+    response_model=StatResponse,
+    tags=["fs"],
+    summary="Consultar un archivo o directorio",
+    description=(
+        "Tipo, tamaño, versión actual y fecha. Un directorio tiene tamaño 0, versión 0 y su fecha de "
+        "creación; la raíz /, que no se guarda en etcd, tiene modified_at 0. RF1."
+    ),
+    dependencies=JWT,
+    responses=error_responses(
+        ErrorCode.E_BAD_REQUEST,
+        ErrorCode.E_AUTH,
+        ErrorCode.E_NOT_FOUND,
+        ErrorCode.E_UNAVAILABLE,
+    ),
+)
+def stat(path: PathQuery):
+    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+
+
+@router.post(
+    "/fs/mkdir",
+    response_model=OkResponse,
+    tags=["fs"],
+    summary="Crear un directorio",
+    description=(
+        "Crea el directorio con una transacción que exige que la clave no exista y que el padre no "
+        "haya cambiado (docs/contratos.md, sección 8). No crea los padres: si el padre no existe o es "
+        "un archivo, 404 E_NOT_FOUND. Si la ruta ya existe (incluida la raíz /), 409 E_EXISTS. RF1."
+    ),
+    dependencies=JWT,
+    responses=error_responses(
+        ErrorCode.E_BAD_REQUEST,
+        ErrorCode.E_AUTH,
+        ErrorCode.E_NOT_FOUND,
+        ErrorCode.E_EXISTS,
+        ErrorCode.E_UNAVAILABLE,
+    ),
+)
+def mkdir(body: MkdirRequest):
+    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+
+
+@router.delete(
+    "/fs/rmdir",
+    response_model=OkResponse,
+    tags=["fs"],
+    summary="Borrar un directorio vacío",
+    description=(
+        "Borra el directorio con una transacción que exige que no haya cambiado y que no tenga "
+        "claves debajo (docs/contratos.md, sección 8); 409 E_NOT_EMPTY si tiene entradas. "
+        "400 E_BAD_REQUEST si la ruta es un archivo o la raíz /, que existe siempre. RF1."
+    ),
+    dependencies=JWT,
+    responses=error_responses(
+        ErrorCode.E_BAD_REQUEST,
+        ErrorCode.E_AUTH,
+        ErrorCode.E_NOT_FOUND,
+        ErrorCode.E_NOT_EMPTY,
+        ErrorCode.E_UNAVAILABLE,
+    ),
+)
+def rmdir(path: RemovablePathQuery):
+    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+
+
+@router.delete(
+    "/fs/rm",
+    response_model=OkResponse,
+    tags=["fs"],
+    summary="Borrar un archivo",
+    description=(
+        "Toma internamente el lock del archivo con espera 0 (423 E_LOCKED si está ocupado); el cliente no "
+        "llama a /locks para borrar. La versión actual pasa a retenida (replaced_at) y la limpieza la quita "
+        "cuando vence DFS_RETENTION_S (DA-02, DA-14). 400 E_BAD_REQUEST si la ruta es un directorio, "
+        "incluida la raíz /. RF1."
+    ),
+    dependencies=JWT,
+    responses=error_responses(
+        ErrorCode.E_BAD_REQUEST,
+        ErrorCode.E_AUTH,
+        ErrorCode.E_NOT_FOUND,
+        ErrorCode.E_LOCKED,
+        ErrorCode.E_UNAVAILABLE,
+    ),
+)
+def rm(path: RemovablePathQuery):
+    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+
+
+# --- Locks (DA-08) ---
+
+
+@router.post(
+    "/locks",
+    response_model=LockResponse,
+    tags=["locks"],
+    summary="Tomar el lock de un archivo",
+    description=(
+        "Lock de etcd con su propio lease de DFS_LOCK_LEASE_S: los escritores esperan en fila, "
+        "en orden de llegada, hasta wait_s segundos (de 0 a 60; 30 si no se indica). Si la espera "
+        "se agota o era 0, responde 423 E_LOCKED y revoca el lease del intento. Si la ruta es un "
+        "directorio, 400 E_BAD_REQUEST. DA-08."
+    ),
+    dependencies=JWT,
+    responses=error_responses(
+        ErrorCode.E_BAD_REQUEST,
+        ErrorCode.E_AUTH,
+        ErrorCode.E_LOCKED,
+        ErrorCode.E_UNAVAILABLE,
+    ),
+)
+def acquire_lock(body: LockRequest):
+    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+
+
+@router.put(
+    "/locks/{lock_id}",
+    response_model=LockResponse,
+    tags=["locks"],
+    summary="Renovar el lease del lock",
+    description=(
+        "Renueva el lease del lock; el cliente lo hace cada DFS_LOCK_RENEW_S. Si el lock ya venció, "
+        "409 E_LOCK_LOST: el cliente lo perdió y empieza de nuevo. DA-08."
+    ),
+    dependencies=JWT,
+    responses=error_responses(
+        ErrorCode.E_AUTH,
+        ErrorCode.E_FORBIDDEN,
+        ErrorCode.E_LOCK_LOST,
+        ErrorCode.E_UNAVAILABLE,
+    ),
+)
+def renew_lock(lock_id: LockIdPath):
+    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+
+
+@router.delete(
+    "/locks/{lock_id}",
+    response_model=OkResponse,
+    tags=["locks"],
+    summary="Liberar el lock",
+    description=(
+        "Libera el lock revocando su lease; entra el siguiente de la fila. Es idempotente: si el lock "
+        "ya no existe, también responde 200. DA-08."
+    ),
+    dependencies=JWT,
+    responses=error_responses(ErrorCode.E_AUTH, ErrorCode.E_FORBIDDEN, ErrorCode.E_UNAVAILABLE),
+)
+def release_lock(lock_id: LockIdPath):
+    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+
+
+# --- Lectura y escritura de archivos (RF2, RF3) ---
+
+
+@router.get(
+    "/files/blocks",
+    response_model=FileBlocksResponse,
+    tags=["files"],
+    summary="Ubicar los bloques de un archivo",
+    description=(
+        "Manifiesto de una versión (la actual si no se indica) con las réplicas de cada bloque "
+        "y un pase de lectura por bloque. Las réplicas de la zona de X-Client-Zone van primero. "
+        "Una versión reemplazada se puede leer durante DFS_RETENTION_S (DA-14). Si la ruta es un "
+        "directorio, 400 E_BAD_REQUEST. Para renovar pases vencidos, se vuelve a pedir con la misma "
+        "version. DA-05, DA-10, DA-11."
+    ),
+    dependencies=JWT,
+    responses=error_responses(
+        ErrorCode.E_BAD_REQUEST,
+        ErrorCode.E_AUTH,
+        ErrorCode.E_NOT_FOUND,
+        ErrorCode.E_UNAVAILABLE,
+    ),
+)
+def file_blocks(
+    path: PathQuery,
+    version: Annotated[int | None, Query(ge=1, description="Versión a leer; si falta, la actual.")] = None,
+    x_client_zone: Annotated[
+        str | None,
+        Header(alias="X-Client-Zone", description="Zona del cliente (DFS_ZONE).", examples=["us-east-1a"]),
+    ] = None,
+):
+    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+
+
+@router.post(
+    "/uploads",
+    response_model=UploadResponse,
+    tags=["uploads"],
+    summary="Reservar una subida",
+    description=(
+        "Recibe los bloques nuevos o cambiados y responde cuáles ya están guardados (present) y, "
+        "para los que faltan, el DataNode primario y un pase de escritura con los secundarios "
+        "(2, o 1 si solo quedan 2 DataNodes vivos). "
+        "Exige el lock del archivo (modos w, a y rw): si el lock_id venció o es de otro archivo, "
+        "409 E_LOCK_LOST. /uploads/{upload_id} queda atada al lease de ese lock y desaparece sola si "
+        "vence. 400 E_BAD_REQUEST si la escritura deja un hueco, si la ruta es un directorio o si "
+        "block_size no es el que corresponde; 404 E_NOT_FOUND si el directorio padre no existe o es "
+        "un archivo. a y rw sobre un archivo que no existe lo crean con base_version 0, igual que w. "
+        "DA-02, DA-03, DA-04, DA-05, DA-14."
+    ),
+    dependencies=JWT,
+    responses=error_responses(
+        ErrorCode.E_BAD_REQUEST,
+        ErrorCode.E_AUTH,
+        ErrorCode.E_FORBIDDEN,
+        ErrorCode.E_NOT_FOUND,
+        ErrorCode.E_VERSION_CONFLICT,
+        ErrorCode.E_LOCK_LOST,
+        ErrorCode.E_UNAVAILABLE,
+        ErrorCode.E_NO_SPACE,
+    ),
+)
+def create_upload(body: UploadRequest):
+    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+
+
+@router.post(
+    "/uploads/{upload_id}/realloc",
+    response_model=ReallocResponse,
+    tags=["uploads"],
+    summary="Pedir otros destinos para bloques que fallaron",
+    description=(
+        "Asigna un primario nuevo, sin los nodos de exclude_nodes, a los bloques que recibieron "
+        "un error reintentable. El cliente reenvía el mismo bloque, con el mismo hash. Con los "
+        "mismos índices y exclude_nodes vacío sirve para renovar pases de escritura vencidos. DA-04, DA-10."
+    ),
+    dependencies=JWT,
+    responses=error_responses(
+        ErrorCode.E_BAD_REQUEST,
+        ErrorCode.E_AUTH,
+        ErrorCode.E_FORBIDDEN,
+        ErrorCode.E_NOT_FOUND,
+        ErrorCode.E_UNAVAILABLE,
+        ErrorCode.E_NO_SPACE,
+    ),
+)
+def realloc_upload(upload_id: UploadIdPath, body: ReallocRequest):
+    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+
+
+@router.post(
+    "/uploads/{upload_id}/commit",
+    response_model=CommitResponse,
+    tags=["uploads"],
+    summary="Publicar la versión nueva",
+    description=(
+        "Transacción de etcd que publica la versión nueva solo si la versión base sigue siendo la "
+        "actual (si no, 409 E_VERSION_CONFLICT) y la clave del lock sigue existiendo y es la de ese "
+        "archivo (si no, 409 E_LOCK_LOST). Si algún bloque no tiene 2 copias confirmadas en zonas distintas, "
+        "422 E_REPLICAS: el cliente vuelve a llamar POST /uploads con la misma lista y envía los "
+        "bloques que falten. 404 E_NOT_FOUND si el directorio padre ya no existe o es un archivo. "
+        "Con base_version 0 crea la entrada con una transacción que exige que la clave no exista y "
+        "que el padre no haya cambiado (docs/contratos.md, sección 8). DA-02, DA-08, G1, G4."
+    ),
+    dependencies=JWT,
+    responses=error_responses(
+        ErrorCode.E_BAD_REQUEST,
+        ErrorCode.E_AUTH,
+        ErrorCode.E_FORBIDDEN,
+        ErrorCode.E_NOT_FOUND,
+        ErrorCode.E_VERSION_CONFLICT,
+        ErrorCode.E_LOCK_LOST,
+        ErrorCode.E_REPLICAS,
+        ErrorCode.E_UNAVAILABLE,
+    ),
+)
+def commit_upload(upload_id: UploadIdPath, body: CommitRequest):
+    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+
+
+# --- Administración (DA-10, DA-16) ---
+
+
+@router.post(
+    "/admin/users",
+    response_model=OkResponse,
+    tags=["admin"],
+    summary="Crear un usuario",
+    description="Crea un usuario con la contraseña guardada en Argon2id. Requiere JWT con admin=true. DA-10.",
+    dependencies=JWT,
+    responses=error_responses(
+        ErrorCode.E_BAD_REQUEST,
+        ErrorCode.E_AUTH,
+        ErrorCode.E_FORBIDDEN,
+        ErrorCode.E_EXISTS,
+        ErrorCode.E_UNAVAILABLE,
+    ),
+)
+def create_user(body: CreateUserRequest):
+    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+
+
+@router.get(
+    "/admin/status",
+    response_model=AdminStatusResponse,
+    tags=["admin"],
+    summary="Estado del sistema",
+    description=(
+        "Líder, MetaServers, DataNodes con zona y estado, bloques con menos de 3 copias y órdenes "
+        "pendientes. Requiere JWT con admin=true. DA-16."
+    ),
+    dependencies=JWT,
+    responses=error_responses(ErrorCode.E_AUTH, ErrorCode.E_FORBIDDEN, ErrorCode.E_UNAVAILABLE),
+)
+def admin_status():
+    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+
+
+@router.get(
+    "/health",
+    response_model=HealthResponse,
+    tags=["health"],
+    summary="Estado del proceso",
+    description="Responde si el proceso está arriba. Sin autenticación.",
+)
+def health():
+    return HealthResponse(status="ok")
+
+
+app = create_app(
+    title="DFSha · MetaServer público",
+    description="API pública del MetaServer (puerto 8443, HTTPS). Contrato legible en docs/contratos.md.",
+)
+app.include_router(router)

@@ -1,0 +1,737 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "DFSha · MetaServer interno",
+    "description": "API interna del MetaServer (puerto 8444, mTLS). Contrato legible en docs/contratos.md.",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/v1/internal/register": {
+      "post": {
+        "tags": [
+          "internal"
+        ],
+        "summary": "Registrar un DataNode",
+        "description": "El DataNode se registra al arrancar con su IP privada (DFS_NODE_IP), puertos, zona y espacio libre. El MetaServer guarda /nodes/dn/{node_id} atada a un lease de DFS_NODE_LEASE_S y responde cada cuánto enviar el latido. DA-11.",
+        "operationId": "register",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisterResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_BAD_REQUEST": {
+                    "value": {
+                      "error": "E_BAD_REQUEST",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "retryable": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_UNAVAILABLE": {
+                    "value": {
+                      "error": "E_UNAVAILABLE",
+                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "retryable": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "mTLS": []
+          }
+        ]
+      }
+    },
+    "/api/v1/internal/heartbeat": {
+      "post": {
+        "tags": [
+          "internal"
+        ],
+        "summary": "Latido de un DataNode",
+        "description": "Renueva el lease del nodo, borra las órdenes cumplidas (done_orders) y responde las pendientes de /orders/{node_id}/. Por cada copy cumplida agrega target.node_id a stored_on; por cada bloque de bad_blocks quita este nodo de stored_on, y la re-réplica repone la copia. Si el lease ya venció, 404 E_NOT_FOUND y el DataNode se registra de nuevo. DA-12.",
+        "operationId": "heartbeat",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HeartbeatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HeartbeatResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_BAD_REQUEST": {
+                    "value": {
+                      "error": "E_BAD_REQUEST",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "retryable": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`E_NOT_FOUND`: ruta, bloque o lease inexistente.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_NOT_FOUND": {
+                    "value": {
+                      "error": "E_NOT_FOUND",
+                      "message": "ruta, bloque o lease inexistente",
+                      "retryable": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_UNAVAILABLE": {
+                    "value": {
+                      "error": "E_UNAVAILABLE",
+                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "retryable": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "mTLS": []
+          }
+        ]
+      }
+    },
+    "/api/v1/internal/blocks/confirm": {
+      "post": {
+        "tags": [
+          "internal"
+        ],
+        "summary": "Confirmar dónde quedó un bloque",
+        "description": "Lo llama el DataNode primario cuando el bloque quedó en W nodos, antes de responderle al cliente. El MetaServer busca en /nodes/dn/ la zona de cada nodo de stored_on (un nodo sin clave, caído, no cuenta). Si las copias no cubren 2 zonas, responde 422 E_REPLICAS y no escribe nada; el primario le pasa ese error al cliente. Si no, escribe /blocks/{user}/{hash}, y si ya existía une las dos listas stored_on sin repetir. DA-04, DA-05.",
+        "operationId": "confirm_block",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BlockConfirmRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_BAD_REQUEST": {
+                    "value": {
+                      "error": "E_BAD_REQUEST",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "retryable": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`E_REPLICAS`: no hay 2 copias confirmadas en zonas distintas.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_REPLICAS": {
+                    "value": {
+                      "error": "E_REPLICAS",
+                      "message": "no hay 2 copias confirmadas en zonas distintas",
+                      "retryable": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_UNAVAILABLE": {
+                    "value": {
+                      "error": "E_UNAVAILABLE",
+                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "retryable": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "mTLS": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "BlockConfirmRequest": {
+        "properties": {
+          "user": {
+            "type": "string",
+            "pattern": "^[a-z0-9_-]{1,32}$",
+            "title": "User",
+            "description": "Nombre de usuario"
+          },
+          "hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Hash",
+            "description": "SHA-256 en hexadecimal minúscula (DA-02)"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Size"
+          },
+          "stored_on": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Stored On",
+            "description": "node_id donde quedó el bloque, empezando por el primario"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user",
+          "hash",
+          "size",
+          "stored_on"
+        ],
+        "title": "BlockConfirmRequest",
+        "examples": [
+          {
+            "hash": "b64bb9046f61749097db060781bcbbba317c08ff0ac378e9aed9a6d18217e449",
+            "size": 8388608,
+            "stored_on": [
+              "dn3",
+              "dn4",
+              "dn1"
+            ],
+            "user": "ana"
+          }
+        ]
+      },
+      "BlockRef": {
+        "properties": {
+          "user": {
+            "type": "string",
+            "pattern": "^[a-z0-9_-]{1,32}$",
+            "title": "User",
+            "description": "Nombre de usuario"
+          },
+          "hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Hash",
+            "description": "SHA-256 en hexadecimal minúscula (DA-02)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user",
+          "hash"
+        ],
+        "title": "BlockRef",
+        "description": "Un bloque de un usuario."
+      },
+      "CopyOrder": {
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "title": "Order Id"
+          },
+          "type": {
+            "type": "string",
+            "const": "copy",
+            "title": "Type"
+          },
+          "user": {
+            "type": "string",
+            "pattern": "^[a-z0-9_-]{1,32}$",
+            "title": "User",
+            "description": "Nombre de usuario"
+          },
+          "hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Hash",
+            "description": "SHA-256 en hexadecimal minúscula (DA-02)"
+          },
+          "target": {
+            "$ref": "#/components/schemas/NodeAddress",
+            "description": "DataNode destino, con su dirección interna (puerto 9444)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "order_id",
+          "type",
+          "user",
+          "hash",
+          "target"
+        ],
+        "title": "CopyOrder",
+        "description": "Orden de copiar un bloque a otro DataNode (re-réplica, DA-12).\n\nEl DataNode que la recibe envía el bloque con PUT /internal/blocks/{user}/{hash} a\ntarget.address y solo la reporta en done_orders si el destino respondió 201.\nEntonces el MetaServer agrega target.node_id a stored_on.",
+        "examples": [
+          {
+            "hash": "6ce5a55b446b43e4e935c44695a9a09f161e8e87d1ff2359adebc5f9ee5ee5cf",
+            "order_id": "b7e3c2a1-4d5f-4a6b-8c9d-0e1f2a3b4c5d",
+            "target": {
+              "address": "172.31.0.10:9444",
+              "node_id": "dn1"
+            },
+            "type": "copy",
+            "user": "ana"
+          }
+        ]
+      },
+      "DeleteOrder": {
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "title": "Order Id"
+          },
+          "type": {
+            "type": "string",
+            "const": "delete",
+            "title": "Type"
+          },
+          "user": {
+            "type": "string",
+            "pattern": "^[a-z0-9_-]{1,32}$",
+            "title": "User",
+            "description": "Nombre de usuario"
+          },
+          "hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Hash",
+            "description": "SHA-256 en hexadecimal minúscula (DA-02)"
+          },
+          "written_before_ms": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Written Before Ms",
+            "description": "Borra solo si escribió el bloque antes de este instante (ms desde epoch, UTC); ya es T - DFS_GC_CLOCK_MARGIN_S"
+          }
+        },
+        "type": "object",
+        "required": [
+          "order_id",
+          "type",
+          "user",
+          "hash",
+          "written_before_ms"
+        ],
+        "title": "DeleteOrder",
+        "description": "Orden de borrar una copia de un bloque.\n\nLa usan la limpieza, para un bloque que ya sacó de etcd (DA-02), y el líder, para la\ncopia que sobra cuando un DataNode vuelve y el bloque queda con más de 3 copias vivas (DA-12).",
+        "examples": [
+          {
+            "hash": "29124d08ab194c99b65e04622016f3306c6c39ce331241c0e089b10e66411607",
+            "order_id": "d9a5e4c3-6f7b-4c8d-8e1f-2a3b4c5d6e7f",
+            "type": "delete",
+            "user": "ana",
+            "written_before_ms": 1793628599000
+          }
+        ]
+      },
+      "ErrorCode": {
+        "type": "string",
+        "enum": [
+          "E_BAD_REQUEST",
+          "E_AUTH",
+          "E_FORBIDDEN",
+          "E_NOT_FOUND",
+          "E_EXISTS",
+          "E_NOT_EMPTY",
+          "E_VERSION_CONFLICT",
+          "E_LOCK_LOST",
+          "E_CHECKSUM",
+          "E_REPLICAS",
+          "E_LOCKED",
+          "E_INTERNAL",
+          "E_NOT_IMPLEMENTED",
+          "E_UNAVAILABLE",
+          "E_NO_SPACE"
+        ],
+        "title": "ErrorCode"
+      },
+      "ErrorResponse": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorCode"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "retryable": {
+            "type": "boolean",
+            "title": "Retryable"
+          }
+        },
+        "type": "object",
+        "required": [
+          "error",
+          "message",
+          "retryable"
+        ],
+        "title": "ErrorResponse",
+        "description": "Cuerpo de toda respuesta de error (DA-06).",
+        "examples": [
+          {
+            "error": "E_VERSION_CONFLICT",
+            "message": "la versión base 3 ya no es la actual (4)",
+            "retryable": false
+          }
+        ]
+      },
+      "HeartbeatRequest": {
+        "properties": {
+          "node_id": {
+            "type": "string",
+            "title": "Node Id"
+          },
+          "lease_id": {
+            "type": "string",
+            "title": "Lease Id"
+          },
+          "free_bytes": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Free Bytes"
+          },
+          "done_orders": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Done Orders",
+            "description": "order_id cumplidos desde el latido anterior; una copy solo si el destino respondió 201"
+          },
+          "bad_blocks": {
+            "items": {
+              "$ref": "#/components/schemas/BlockRef"
+            },
+            "type": "array",
+            "title": "Bad Blocks",
+            "description": "Copias dañadas que el DataNode encontró y borró; el MetaServer las quita de stored_on"
+          }
+        },
+        "type": "object",
+        "required": [
+          "node_id",
+          "lease_id",
+          "free_bytes"
+        ],
+        "title": "HeartbeatRequest",
+        "examples": [
+          {
+            "bad_blocks": [
+              {
+                "hash": "8de70b36bbfaaf4bd8fecc81370e32e388e0fa57cabc32a1fbd46777ac7ac937",
+                "user": "ana"
+              }
+            ],
+            "done_orders": [
+              "a6d2b1f0-3c4e-4f5a-9b8c-7d6e5f4a3b2c"
+            ],
+            "free_bytes": 14495514624,
+            "lease_id": "694d8a1c2e3b4f13",
+            "node_id": "dn2"
+          }
+        ]
+      },
+      "HeartbeatResponse": {
+        "properties": {
+          "orders": {
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/CopyOrder"
+                },
+                {
+                  "$ref": "#/components/schemas/DeleteOrder"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "type",
+                "mapping": {
+                  "copy": "#/components/schemas/CopyOrder",
+                  "delete": "#/components/schemas/DeleteOrder"
+                }
+              }
+            },
+            "type": "array",
+            "title": "Orders",
+            "description": "Órdenes pendientes de este DataNode (DA-12)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "orders"
+        ],
+        "title": "HeartbeatResponse",
+        "examples": [
+          {
+            "orders": [
+              {
+                "hash": "6ce5a55b446b43e4e935c44695a9a09f161e8e87d1ff2359adebc5f9ee5ee5cf",
+                "order_id": "b7e3c2a1-4d5f-4a6b-8c9d-0e1f2a3b4c5d",
+                "target": {
+                  "address": "172.31.0.10:9444",
+                  "node_id": "dn1"
+                },
+                "type": "copy",
+                "user": "ana"
+              },
+              {
+                "hash": "29124d08ab194c99b65e04622016f3306c6c39ce331241c0e089b10e66411607",
+                "order_id": "d9a5e4c3-6f7b-4c8d-8e1f-2a3b4c5d6e7f",
+                "type": "delete",
+                "user": "ana",
+                "written_before_ms": 1793628599000
+              }
+            ]
+          }
+        ]
+      },
+      "NodeAddress": {
+        "properties": {
+          "node_id": {
+            "type": "string",
+            "title": "Node Id"
+          },
+          "address": {
+            "type": "string",
+            "pattern": "^[^:\\s]+:[0-9]{1,5}$",
+            "title": "Address",
+            "description": "ip:puerto, con la IP privada (DA-11)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "node_id",
+          "address"
+        ],
+        "title": "NodeAddress",
+        "description": "Un DataNode y su dirección ip:puerto.\n\nAl cliente se le da el puerto público (9443); en la orden copy va el interno (9444)."
+      },
+      "OkResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok"
+        ],
+        "title": "OkResponse",
+        "description": "Confirmación sin más datos.",
+        "examples": [
+          {
+            "ok": true
+          }
+        ]
+      },
+      "RegisterRequest": {
+        "properties": {
+          "node_id": {
+            "type": "string",
+            "title": "Node Id"
+          },
+          "ip": {
+            "type": "string",
+            "title": "Ip",
+            "description": "IP privada del DataNode"
+          },
+          "public_port": {
+            "type": "integer",
+            "maximum": 65535.0,
+            "minimum": 1.0,
+            "title": "Public Port"
+          },
+          "internal_port": {
+            "type": "integer",
+            "maximum": 65535.0,
+            "minimum": 1.0,
+            "title": "Internal Port"
+          },
+          "zone": {
+            "type": "string",
+            "title": "Zone"
+          },
+          "free_bytes": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Free Bytes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "node_id",
+          "ip",
+          "public_port",
+          "internal_port",
+          "zone",
+          "free_bytes"
+        ],
+        "title": "RegisterRequest",
+        "examples": [
+          {
+            "free_bytes": 15032385536,
+            "internal_port": 9444,
+            "ip": "172.31.0.10",
+            "node_id": "dn1",
+            "public_port": 9443,
+            "zone": "us-east-1a"
+          }
+        ]
+      },
+      "RegisterResponse": {
+        "properties": {
+          "lease_id": {
+            "type": "string",
+            "title": "Lease Id",
+            "description": "Lease de etcd al que queda atada /nodes/dn/{node_id}"
+          },
+          "heartbeat_s": {
+            "type": "integer",
+            "title": "Heartbeat S",
+            "description": "Cada cuántos segundos enviar el latido (DFS_HEARTBEAT_S)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "lease_id",
+          "heartbeat_s"
+        ],
+        "title": "RegisterResponse",
+        "examples": [
+          {
+            "heartbeat_s": 5,
+            "lease_id": "694d8a1c2e3b4f12"
+          }
+        ]
+      }
+    },
+    "securitySchemes": {
+      "mTLS": {
+        "type": "mutualTLS",
+        "description": "TLS mutuo con un certificado de servidor firmado por la CA propia (DA-06, DA-11)."
+      }
+    }
+  }
+}

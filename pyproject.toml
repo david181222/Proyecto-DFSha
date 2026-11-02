@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dfsha"
+version = "0.1.0"
+description = "DFSha: sistema de archivos distribuido con alta disponibilidad (Sistemas Distribuidos, UPB 2026-2)"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    # fastapi y pydantic van con versión exacta porque el OpenAPI de docs/api/
+    # cambia entre versiones y tests/test_contratos.py lo compara con el código.
+    "fastapi==0.162.0",
+    "pydantic==2.14.2",
+    "pydantic-settings>=2.7",
+    "uvicorn>=0.30",
+    "httpx>=0.27",
+    "cryptography>=43",
+    "argon2-cffi>=23.1",
+    "PyJWT>=2.9",
+    "typer>=0.12",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,3472 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "DFSha · MetaServer público",
+    "description": "API pública del MetaServer (puerto 8443, HTTPS). Contrato legible en docs/contratos.md.",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/v1/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Iniciar sesión",
+        "description": "Verifica la contraseña (Argon2id) y entrega un JWT que dura DFS_JWT_TTL_S. Sin autenticación. DA-10.",
+        "operationId": "login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_BAD_REQUEST": {
+                    "value": {
+                      "error": "E_BAD_REQUEST",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "retryable": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`E_AUTH`: JWT ausente, inválido o vencido, o pase ausente o vencido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_AUTH": {
+                    "value": {
+                      "error": "E_AUTH",
+                      "message": "JWT ausente, inválido o vencido, o pase ausente o vencido",
+                      "retryable": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_UNAVAILABLE": {
+                    "value": {
+                      "error": "E_UNAVAILABLE",
+                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "retryable": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cluster/metaservers": {
+      "get": {
+        "tags": [
+          "cluster"
+        ],
+        "summary": "Listar MetaServers vivos",
+        "description": "Lista actual de MetaServers vivos, leída de /nodes/meta/ en etcd, dentro del objeto {metaservers}. El cliente usa public_port y los DataNodes internal_port. Sin autenticación. DA-11.",
+        "operationId": "list_metaservers",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetaServerListResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_UNAVAILABLE": {
+                    "value": {
+                      "error": "E_UNAVAILABLE",
+                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "retryable": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/fs/ls": {
+      "get": {
+        "tags": [
+          "fs"
+        ],
+        "summary": "Listar un directorio",
+        "description": "Entradas del directorio con nombre, tipo, tamaño, versión y fecha. La raíz / existe siempre. Sobre un archivo devuelve ese archivo como única entrada, como ls archivo en Linux. RF1.",
+        "operationId": "ls",
+        "security": [
+          {
+            "JWT": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Ruta absoluta dentro del espacio del usuario (RF1): empieza en /, sin / al final (salvo la raíz) y sin //; hasta 1024 bytes en UTF-8; cada componente mide de 1 a 255 bytes, no contiene el carácter nulo y no es . ni ..",
+              "examples": [
+                "/docs/informe.pdf"
+              ],
+              "title": "Path"
+            },
+            "description": "Ruta absoluta dentro del espacio del usuario (RF1): empieza en /, sin / al final (salvo la raíz) y sin //; hasta 1024 bytes en UTF-8; cada componente mide de 1 a 255 bytes, no contiene el carácter nulo y no es . ni .."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_BAD_REQUEST": {
+                    "value": {
+                      "error": "E_BAD_REQUEST",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`E_AUTH`: JWT ausente, inválido o vencido, o pase ausente o vencido.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_AUTH": {
+                    "value": {
+                      "error": "E_AUTH",
+                      "message": "JWT ausente, inválido o vencido, o pase ausente o vencido",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`E_NOT_FOUND`: ruta, bloque o lease inexistente.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_NOT_FOUND": {
+                    "value": {
+                      "error": "E_NOT_FOUND",
+                      "message": "ruta, bloque o lease inexistente",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_UNAVAILABLE": {
+                    "value": {
+                      "error": "E_UNAVAILABLE",
+                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "retryable": true
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/fs/stat": {
+      "get": {
+        "tags": [
+          "fs"
+        ],
+        "summary": "Consultar un archivo o directorio",
+        "description": "Tipo, tamaño, versión actual y fecha. Un directorio tiene tamaño 0, versión 0 y su fecha de creación; la raíz /, que no se guarda en etcd, tiene modified_at 0. RF1.",
+        "operationId": "stat",
+        "security": [
+          {
+            "JWT": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Ruta absoluta dentro del espacio del usuario (RF1): empieza en /, sin / al final (salvo la raíz) y sin //; hasta 1024 bytes en UTF-8; cada componente mide de 1 a 255 bytes, no contiene el carácter nulo y no es . ni ..",
+              "examples": [
+                "/docs/informe.pdf"
+              ],
+              "title": "Path"
+            },
+            "description": "Ruta absoluta dentro del espacio del usuario (RF1): empieza en /, sin / al final (salvo la raíz) y sin //; hasta 1024 bytes en UTF-8; cada componente mide de 1 a 255 bytes, no contiene el carácter nulo y no es . ni .."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_BAD_REQUEST": {
+                    "value": {
+                      "error": "E_BAD_REQUEST",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`E_AUTH`: JWT ausente, inválido o vencido, o pase ausente o vencido.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_AUTH": {
+                    "value": {
+                      "error": "E_AUTH",
+                      "message": "JWT ausente, inválido o vencido, o pase ausente o vencido",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`E_NOT_FOUND`: ruta, bloque o lease inexistente.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_NOT_FOUND": {
+                    "value": {
+                      "error": "E_NOT_FOUND",
+                      "message": "ruta, bloque o lease inexistente",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_UNAVAILABLE": {
+                    "value": {
+                      "error": "E_UNAVAILABLE",
+                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "retryable": true
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/fs/mkdir": {
+      "post": {
+        "tags": [
+          "fs"
+        ],
+        "summary": "Crear un directorio",
+        "description": "Crea el directorio con una transacción que exige que la clave no exista y que el padre no haya cambiado (docs/contratos.md, sección 8). No crea los padres: si el padre no existe o es un archivo, 404 E_NOT_FOUND. Si la ruta ya existe (incluida la raíz /), 409 E_EXISTS. RF1.",
+        "operationId": "mkdir",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MkdirRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_BAD_REQUEST": {
+                    "value": {
+                      "error": "E_BAD_REQUEST",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "retryable": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`E_AUTH`: JWT ausente, inválido o vencido, o pase ausente o vencido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_AUTH": {
+                    "value": {
+                      "error": "E_AUTH",
+                      "message": "JWT ausente, inválido o vencido, o pase ausente o vencido",
+                      "retryable": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`E_NOT_FOUND`: ruta, bloque o lease inexistente.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_NOT_FOUND": {
+                    "value": {
+                      "error": "E_NOT_FOUND",
+                      "message": "ruta, bloque o lease inexistente",
+                      "retryable": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`E_EXISTS`: la ruta ya existe.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_EXISTS": {
+                    "value": {
+                      "error": "E_EXISTS",
+                      "message": "la ruta ya existe",
+                      "retryable": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_UNAVAILABLE": {
+                    "value": {
+                      "error": "E_UNAVAILABLE",
+                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "retryable": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "JWT": []
+          }
+        ]
+      }
+    },
+    "/api/v1/fs/rmdir": {
+      "delete": {
+        "tags": [
+          "fs"
+        ],
+        "summary": "Borrar un directorio vacío",
+        "description": "Borra el directorio con una transacción que exige que no haya cambiado y que no tenga claves debajo (docs/contratos.md, sección 8); 409 E_NOT_EMPTY si tiene entradas. 400 E_BAD_REQUEST si la ruta es un archivo o la raíz /, que existe siempre. RF1.",
+        "operationId": "rmdir",
+        "security": [
+          {
+            "JWT": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Ruta absoluta dentro del espacio del usuario (RF1): empieza en /, sin / al final (salvo la raíz) y sin //; hasta 1024 bytes en UTF-8; cada componente mide de 1 a 255 bytes, no contiene el carácter nulo y no es . ni ... No puede ser la raíz /.",
+              "examples": [
+                "/docs/informe.pdf"
+              ],
+              "title": "Path"
+            },
+            "description": "Ruta absoluta dentro del espacio del usuario (RF1): empieza en /, sin / al final (salvo la raíz) y sin //; hasta 1024 bytes en UTF-8; cada componente mide de 1 a 255 bytes, no contiene el carácter nulo y no es . ni ... No puede ser la raíz /."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_BAD_REQUEST": {
+                    "value": {
+                      "error": "E_BAD_REQUEST",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`E_AUTH`: JWT ausente, inválido o vencido, o pase ausente o vencido.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_AUTH": {
+                    "value": {
+                      "error": "E_AUTH",
+                      "message": "JWT ausente, inválido o vencido, o pase ausente o vencido",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`E_NOT_FOUND`: ruta, bloque o lease inexistente.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_NOT_FOUND": {
+                    "value": {
+                      "error": "E_NOT_FOUND",
+                      "message": "ruta, bloque o lease inexistente",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`E_NOT_EMPTY`: directorio no vacío.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_NOT_EMPTY": {
+                    "value": {
+                      "error": "E_NOT_EMPTY",
+                      "message": "directorio no vacío",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_UNAVAILABLE": {
+                    "value": {
+                      "error": "E_UNAVAILABLE",
+                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "retryable": true
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/fs/rm": {
+      "delete": {
+        "tags": [
+          "fs"
+        ],
+        "summary": "Borrar un archivo",
+        "description": "Toma internamente el lock del archivo con espera 0 (423 E_LOCKED si está ocupado); el cliente no llama a /locks para borrar. La versión actual pasa a retenida (replaced_at) y la limpieza la quita cuando vence DFS_RETENTION_S (DA-02, DA-14). 400 E_BAD_REQUEST si la ruta es un directorio, incluida la raíz /. RF1.",
+        "operationId": "rm",
+        "security": [
+          {
+            "JWT": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Ruta absoluta dentro del espacio del usuario (RF1): empieza en /, sin / al final (salvo la raíz) y sin //; hasta 1024 bytes en UTF-8; cada componente mide de 1 a 255 bytes, no contiene el carácter nulo y no es . ni ... No puede ser la raíz /.",
+              "examples": [
+                "/docs/informe.pdf"
+              ],
+              "title": "Path"
+            },
+            "description": "Ruta absoluta dentro del espacio del usuario (RF1): empieza en /, sin / al final (salvo la raíz) y sin //; hasta 1024 bytes en UTF-8; cada componente mide de 1 a 255 bytes, no contiene el carácter nulo y no es . ni ... No puede ser la raíz /."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_BAD_REQUEST": {
+                    "value": {
+                      "error": "E_BAD_REQUEST",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`E_AUTH`: JWT ausente, inválido o vencido, o pase ausente o vencido.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_AUTH": {
+                    "value": {
+                      "error": "E_AUTH",
+                      "message": "JWT ausente, inválido o vencido, o pase ausente o vencido",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`E_NOT_FOUND`: ruta, bloque o lease inexistente.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_NOT_FOUND": {
+                    "value": {
+                      "error": "E_NOT_FOUND",
+                      "message": "ruta, bloque o lease inexistente",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "`E_LOCKED`: lock ocupado y la espera se agotó o era 0.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_LOCKED": {
+                    "value": {
+                      "error": "E_LOCKED",
+                      "message": "lock ocupado y la espera se agotó o era 0",
+                      "retryable": true
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_UNAVAILABLE": {
+                    "value": {
+                      "error": "E_UNAVAILABLE",
+                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "retryable": true
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/locks": {
+      "post": {
+        "tags": [
+          "locks"
+        ],
+        "summary": "Tomar el lock de un archivo",
+        "description": "Lock de etcd con su propio lease de DFS_LOCK_LEASE_S: los escritores esperan en fila, en orden de llegada, hasta wait_s segundos (de 0 a 60; 30 si no se indica). Si la espera se agota o era 0, responde 423 E_LOCKED y revoca el lease del intento. Si la ruta es un directorio, 400 E_BAD_REQUEST. DA-08.",
+        "operationId": "acquire_lock",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LockRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LockResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_BAD_REQUEST": {
+                    "value": {
+                      "error": "E_BAD_REQUEST",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "retryable": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`E_AUTH`: JWT ausente, inválido o vencido, o pase ausente o vencido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_AUTH": {
+                    "value": {
+                      "error": "E_AUTH",
+                      "message": "JWT ausente, inválido o vencido, o pase ausente o vencido",
+                      "retryable": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "`E_LOCKED`: lock ocupado y la espera se agotó o era 0.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_LOCKED": {
+                    "value": {
+                      "error": "E_LOCKED",
+                      "message": "lock ocupado y la espera se agotó o era 0",
+                      "retryable": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_UNAVAILABLE": {
+                    "value": {
+                      "error": "E_UNAVAILABLE",
+                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "retryable": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "JWT": []
+          }
+        ]
+      }
+    },
+    "/api/v1/locks/{lock_id}": {
+      "put": {
+        "tags": [
+          "locks"
+        ],
+        "summary": "Renovar el lease del lock",
+        "description": "Renueva el lease del lock; el cliente lo hace cada DFS_LOCK_RENEW_S. Si el lock ya venció, 409 E_LOCK_LOST: el cliente lo perdió y empieza de nuevo. DA-08.",
+        "operationId": "renew_lock",
+        "security": [
+          {
+            "JWT": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "lock_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "lock_id que entregó POST /locks.",
+              "examples": [
+                "694d8a1c2e3b4f05"
+              ],
+              "title": "Lock Id"
+            },
+            "description": "lock_id que entregó POST /locks."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LockResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`E_AUTH`: JWT ausente, inválido o vencido, o pase ausente o vencido.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_AUTH": {
+                    "value": {
+                      "error": "E_AUTH",
+                      "message": "JWT ausente, inválido o vencido, o pase ausente o vencido",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`E_FORBIDDEN`: pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_FORBIDDEN": {
+                    "value": {
+                      "error": "E_FORBIDDEN",
+                      "message": "pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`E_LOCK_LOST`: el lock venció o es de otro archivo.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_LOCK_LOST": {
+                    "value": {
+                      "error": "E_LOCK_LOST",
+                      "message": "el lock venció o es de otro archivo",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_UNAVAILABLE": {
+                    "value": {
+                      "error": "E_UNAVAILABLE",
+                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "retryable": true
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "locks"
+        ],
+        "summary": "Liberar el lock",
+        "description": "Libera el lock revocando su lease; entra el siguiente de la fila. Es idempotente: si el lock ya no existe, también responde 200. DA-08.",
+        "operationId": "release_lock",
+        "security": [
+          {
+            "JWT": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "lock_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "lock_id que entregó POST /locks.",
+              "examples": [
+                "694d8a1c2e3b4f05"
+              ],
+              "title": "Lock Id"
+            },
+            "description": "lock_id que entregó POST /locks."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`E_AUTH`: JWT ausente, inválido o vencido, o pase ausente o vencido.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_AUTH": {
+                    "value": {
+                      "error": "E_AUTH",
+                      "message": "JWT ausente, inválido o vencido, o pase ausente o vencido",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`E_FORBIDDEN`: pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_FORBIDDEN": {
+                    "value": {
+                      "error": "E_FORBIDDEN",
+                      "message": "pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_UNAVAILABLE": {
+                    "value": {
+                      "error": "E_UNAVAILABLE",
+                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "retryable": true
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/files/blocks": {
+      "get": {
+        "tags": [
+          "files"
+        ],
+        "summary": "Ubicar los bloques de un archivo",
+        "description": "Manifiesto de una versión (la actual si no se indica) con las réplicas de cada bloque y un pase de lectura por bloque. Las réplicas de la zona de X-Client-Zone van primero. Una versión reemplazada se puede leer durante DFS_RETENTION_S (DA-14). Si la ruta es un directorio, 400 E_BAD_REQUEST. Para renovar pases vencidos, se vuelve a pedir con la misma version. DA-05, DA-10, DA-11.",
+        "operationId": "file_blocks",
+        "security": [
+          {
+            "JWT": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Ruta absoluta dentro del espacio del usuario (RF1): empieza en /, sin / al final (salvo la raíz) y sin //; hasta 1024 bytes en UTF-8; cada componente mide de 1 a 255 bytes, no contiene el carácter nulo y no es . ni ..",
+              "examples": [
+                "/docs/informe.pdf"
+              ],
+              "title": "Path"
+            },
+            "description": "Ruta absoluta dentro del espacio del usuario (RF1): empieza en /, sin / al final (salvo la raíz) y sin //; hasta 1024 bytes en UTF-8; cada componente mide de 1 a 255 bytes, no contiene el carácter nulo y no es . ni .."
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Versión a leer; si falta, la actual.",
+              "title": "Version"
+            },
+            "description": "Versión a leer; si falta, la actual."
+          },
+          {
+            "name": "X-Client-Zone",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Zona del cliente (DFS_ZONE).",
+              "examples": [
+                "us-east-1a"
+              ],
+              "title": "X-Client-Zone"
+            },
+            "description": "Zona del cliente (DFS_ZONE)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileBlocksResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_BAD_REQUEST": {
+                    "value": {
+                      "error": "E_BAD_REQUEST",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`E_AUTH`: JWT ausente, inválido o vencido, o pase ausente o vencido.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_AUTH": {
+                    "value": {
+                      "error": "E_AUTH",
+                      "message": "JWT ausente, inválido o vencido, o pase ausente o vencido",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`E_NOT_FOUND`: ruta, bloque o lease inexistente.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_NOT_FOUND": {
+                    "value": {
+                      "error": "E_NOT_FOUND",
+                      "message": "ruta, bloque o lease inexistente",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_UNAVAILABLE": {
+                    "value": {
+                      "error": "E_UNAVAILABLE",
+                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "retryable": true
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/uploads": {
+      "post": {
+        "tags": [
+          "uploads"
+        ],
+        "summary": "Reservar una subida",
+        "description": "Recibe los bloques nuevos o cambiados y responde cuáles ya están guardados (present) y, para los que faltan, el DataNode primario y un pase de escritura con los secundarios (2, o 1 si solo quedan 2 DataNodes vivos). Exige el lock del archivo (modos w, a y rw): si el lock_id venció o es de otro archivo, 409 E_LOCK_LOST. /uploads/{upload_id} queda atada al lease de ese lock y desaparece sola si vence. 400 E_BAD_REQUEST si la escritura deja un hueco, si la ruta es un directorio o si block_size no es el que corresponde; 404 E_NOT_FOUND si el directorio padre no existe o es un archivo. a y rw sobre un archivo que no existe lo crean con base_version 0, igual que w. DA-02, DA-03, DA-04, DA-05, DA-14.",
+        "operationId": "create_upload",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_BAD_REQUEST": {
+                    "value": {
+                      "error": "E_BAD_REQUEST",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "retryable": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`E_AUTH`: JWT ausente, inválido o vencido, o pase ausente o vencido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_AUTH": {
+                    "value": {
+                      "error": "E_AUTH",
+                      "message": "JWT ausente, inválido o vencido, o pase ausente o vencido",
+                      "retryable": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`E_FORBIDDEN`: pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_FORBIDDEN": {
+                    "value": {
+                      "error": "E_FORBIDDEN",
+                      "message": "pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario",
+                      "retryable": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`E_NOT_FOUND`: ruta, bloque o lease inexistente.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_NOT_FOUND": {
+                    "value": {
+                      "error": "E_NOT_FOUND",
+                      "message": "ruta, bloque o lease inexistente",
+                      "retryable": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`E_VERSION_CONFLICT`: la versión base ya no es la actual. `E_LOCK_LOST`: el lock venció o es de otro archivo.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_VERSION_CONFLICT": {
+                    "value": {
+                      "error": "E_VERSION_CONFLICT",
+                      "message": "la versión base ya no es la actual",
+                      "retryable": false
+                    }
+                  },
+                  "E_LOCK_LOST": {
+                    "value": {
+                      "error": "E_LOCK_LOST",
+                      "message": "el lock venció o es de otro archivo",
+                      "retryable": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_UNAVAILABLE": {
+                    "value": {
+                      "error": "E_UNAVAILABLE",
+                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "retryable": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "`E_NO_SPACE`: sin espacio en los DataNodes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_NO_SPACE": {
+                    "value": {
+                      "error": "E_NO_SPACE",
+                      "message": "sin espacio en los DataNodes",
+                      "retryable": false
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "JWT": []
+          }
+        ]
+      }
+    },
+    "/api/v1/uploads/{upload_id}/realloc": {
+      "post": {
+        "tags": [
+          "uploads"
+        ],
+        "summary": "Pedir otros destinos para bloques que fallaron",
+        "description": "Asigna un primario nuevo, sin los nodos de exclude_nodes, a los bloques que recibieron un error reintentable. El cliente reenvía el mismo bloque, con el mismo hash. Con los mismos índices y exclude_nodes vacío sirve para renovar pases de escritura vencidos. DA-04, DA-10.",
+        "operationId": "realloc_upload",
+        "security": [
+          {
+            "JWT": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "upload_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "upload_id que entregó POST /uploads.",
+              "examples": [
+                "9b2f6d1e-4c3a-4e8b-9f1d-2a7c5e8b1d43"
+              ],
+              "title": "Upload Id"
+            },
+            "description": "upload_id que entregó POST /uploads."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReallocRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReallocResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_BAD_REQUEST": {
+                    "value": {
+                      "error": "E_BAD_REQUEST",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`E_AUTH`: JWT ausente, inválido o vencido, o pase ausente o vencido.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_AUTH": {
+                    "value": {
+                      "error": "E_AUTH",
+                      "message": "JWT ausente, inválido o vencido, o pase ausente o vencido",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`E_FORBIDDEN`: pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_FORBIDDEN": {
+                    "value": {
+                      "error": "E_FORBIDDEN",
+                      "message": "pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`E_NOT_FOUND`: ruta, bloque o lease inexistente.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_NOT_FOUND": {
+                    "value": {
+                      "error": "E_NOT_FOUND",
+                      "message": "ruta, bloque o lease inexistente",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_UNAVAILABLE": {
+                    "value": {
+                      "error": "E_UNAVAILABLE",
+                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "retryable": true
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "`E_NO_SPACE`: sin espacio en los DataNodes.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_NO_SPACE": {
+                    "value": {
+                      "error": "E_NO_SPACE",
+                      "message": "sin espacio en los DataNodes",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/uploads/{upload_id}/commit": {
+      "post": {
+        "tags": [
+          "uploads"
+        ],
+        "summary": "Publicar la versión nueva",
+        "description": "Transacción de etcd que publica la versión nueva solo si la versión base sigue siendo la actual (si no, 409 E_VERSION_CONFLICT) y la clave del lock sigue existiendo y es la de ese archivo (si no, 409 E_LOCK_LOST). Si algún bloque no tiene 2 copias confirmadas en zonas distintas, 422 E_REPLICAS: el cliente vuelve a llamar POST /uploads con la misma lista y envía los bloques que falten. 404 E_NOT_FOUND si el directorio padre ya no existe o es un archivo. Con base_version 0 crea la entrada con una transacción que exige que la clave no exista y que el padre no haya cambiado (docs/contratos.md, sección 8). DA-02, DA-08, G1, G4.",
+        "operationId": "commit_upload",
+        "security": [
+          {
+            "JWT": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "upload_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "upload_id que entregó POST /uploads.",
+              "examples": [
+                "9b2f6d1e-4c3a-4e8b-9f1d-2a7c5e8b1d43"
+              ],
+              "title": "Upload Id"
+            },
+            "description": "upload_id que entregó POST /uploads."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommitRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommitResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_BAD_REQUEST": {
+                    "value": {
+                      "error": "E_BAD_REQUEST",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`E_AUTH`: JWT ausente, inválido o vencido, o pase ausente o vencido.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_AUTH": {
+                    "value": {
+                      "error": "E_AUTH",
+                      "message": "JWT ausente, inválido o vencido, o pase ausente o vencido",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`E_FORBIDDEN`: pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_FORBIDDEN": {
+                    "value": {
+                      "error": "E_FORBIDDEN",
+                      "message": "pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`E_NOT_FOUND`: ruta, bloque o lease inexistente.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_NOT_FOUND": {
+                    "value": {
+                      "error": "E_NOT_FOUND",
+                      "message": "ruta, bloque o lease inexistente",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`E_VERSION_CONFLICT`: la versión base ya no es la actual. `E_LOCK_LOST`: el lock venció o es de otro archivo.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_VERSION_CONFLICT": {
+                    "value": {
+                      "error": "E_VERSION_CONFLICT",
+                      "message": "la versión base ya no es la actual",
+                      "retryable": false
+                    }
+                  },
+                  "E_LOCK_LOST": {
+                    "value": {
+                      "error": "E_LOCK_LOST",
+                      "message": "el lock venció o es de otro archivo",
+                      "retryable": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`E_REPLICAS`: no hay 2 copias confirmadas en zonas distintas.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_REPLICAS": {
+                    "value": {
+                      "error": "E_REPLICAS",
+                      "message": "no hay 2 copias confirmadas en zonas distintas",
+                      "retryable": true
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "E_UNAVAILABLE": {
+                    "value": {
+                      "error": "E_UNAVAILABLE",
+                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "retryable": true
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/users": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Crear un usuario",
+        "description": "Crea un usuario con la contraseña guardada en Argon2id. Requiere JWT con admin=true. DA-10.",
+        "operationId": "create_user",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_BAD_REQUEST": {
+                    "value": {
+                      "error": "E_BAD_REQUEST",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "retryable": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`E_AUTH`: JWT ausente, inválido o vencido, o pase ausente o vencido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_AUTH": {
+                    "value": {
+                      "error": "E_AUTH",
+                      "message": "JWT ausente, inválido o vencido, o pase ausente o vencido",
+                      "retryable": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`E_FORBIDDEN`: pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_FORBIDDEN": {
+                    "value": {
+                      "error": "E_FORBIDDEN",
+                      "message": "pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario",
+                      "retryable": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`E_EXISTS`: la ruta ya existe.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_EXISTS": {
+                    "value": {
+                      "error": "E_EXISTS",
+                      "message": "la ruta ya existe",
+                      "retryable": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_UNAVAILABLE": {
+                    "value": {
+                      "error": "E_UNAVAILABLE",
+                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "retryable": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "JWT": []
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/status": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Estado del sistema",
+        "description": "Líder, MetaServers, DataNodes con zona y estado, bloques con menos de 3 copias y órdenes pendientes. Requiere JWT con admin=true. DA-16.",
+        "operationId": "admin_status",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminStatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`E_AUTH`: JWT ausente, inválido o vencido, o pase ausente o vencido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_AUTH": {
+                    "value": {
+                      "error": "E_AUTH",
+                      "message": "JWT ausente, inválido o vencido, o pase ausente o vencido",
+                      "retryable": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`E_FORBIDDEN`: pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_FORBIDDEN": {
+                    "value": {
+                      "error": "E_FORBIDDEN",
+                      "message": "pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario",
+                      "retryable": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_UNAVAILABLE": {
+                    "value": {
+                      "error": "E_UNAVAILABLE",
+                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "retryable": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "JWT": []
+          }
+        ]
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Estado del proceso",
+        "description": "Responde si el proceso está arriba. Sin autenticación.",
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AdminStatusResponse": {
+        "properties": {
+          "leader": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leader",
+            "description": "meta_id del líder actual; null si no hay líder"
+          },
+          "metaservers": {
+            "items": {
+              "$ref": "#/components/schemas/MetaServerStatus"
+            },
+            "type": "array",
+            "title": "Metaservers"
+          },
+          "datanodes": {
+            "items": {
+              "$ref": "#/components/schemas/DataNodeStatus"
+            },
+            "type": "array",
+            "title": "Datanodes"
+          },
+          "under_replicated": {
+            "items": {
+              "$ref": "#/components/schemas/UnderReplicatedBlock"
+            },
+            "type": "array",
+            "title": "Under Replicated",
+            "description": "Bloques con menos de 3 copias vivas"
+          },
+          "pending_orders": {
+            "items": {
+              "$ref": "#/components/schemas/PendingOrder"
+            },
+            "type": "array",
+            "title": "Pending Orders"
+          }
+        },
+        "type": "object",
+        "required": [
+          "leader",
+          "metaservers",
+          "datanodes",
+          "under_replicated",
+          "pending_orders"
+        ],
+        "title": "AdminStatusResponse",
+        "examples": [
+          {
+            "datanodes": [
+              {
+                "address": "172.31.0.10:9443",
+                "alive": true,
+                "free_bytes": 15032385536,
+                "node_id": "dn1",
+                "zone": "us-east-1a"
+              },
+              {
+                "address": "172.31.16.10:9443",
+                "alive": true,
+                "free_bytes": 14495514624,
+                "node_id": "dn2",
+                "zone": "us-east-1b"
+              },
+              {
+                "address": "172.31.32.10:9443",
+                "alive": true,
+                "free_bytes": 15569256448,
+                "node_id": "dn3",
+                "zone": "us-east-1c"
+              },
+              {
+                "alive": false,
+                "node_id": "dn4"
+              }
+            ],
+            "leader": "meta2",
+            "metaservers": [
+              {
+                "internal_port": 8444,
+                "ip": "172.31.0.10",
+                "meta_id": "meta1",
+                "public_port": 8443
+              },
+              {
+                "internal_port": 8444,
+                "ip": "172.31.16.10",
+                "meta_id": "meta2",
+                "public_port": 8443
+              },
+              {
+                "internal_port": 8444,
+                "ip": "172.31.32.10",
+                "meta_id": "meta3",
+                "public_port": 8443
+              }
+            ],
+            "pending_orders": [
+              {
+                "node_id": "dn2",
+                "order": {
+                  "hash": "6ce5a55b446b43e4e935c44695a9a09f161e8e87d1ff2359adebc5f9ee5ee5cf",
+                  "order_id": "b7e3c2a1-4d5f-4a6b-8c9d-0e1f2a3b4c5d",
+                  "target": {
+                    "address": "172.31.0.10:9444",
+                    "node_id": "dn1"
+                  },
+                  "type": "copy",
+                  "user": "ana"
+                }
+              },
+              {
+                "node_id": "dn3",
+                "order": {
+                  "hash": "b64bb9046f61749097db060781bcbbba317c08ff0ac378e9aed9a6d18217e449",
+                  "order_id": "c8f4d3b2-5e6a-4b7c-9d0e-1f2a3b4c5d6e",
+                  "target": {
+                    "address": "172.31.16.10:9444",
+                    "node_id": "dn2"
+                  },
+                  "type": "copy",
+                  "user": "ana"
+                }
+              }
+            ],
+            "under_replicated": [
+              {
+                "alive_on": [
+                  "dn2",
+                  "dn3"
+                ],
+                "hash": "6ce5a55b446b43e4e935c44695a9a09f161e8e87d1ff2359adebc5f9ee5ee5cf",
+                "user": "ana"
+              },
+              {
+                "alive_on": [
+                  "dn3",
+                  "dn1"
+                ],
+                "hash": "b64bb9046f61749097db060781bcbbba317c08ff0ac378e9aed9a6d18217e449",
+                "user": "ana"
+              }
+            ]
+          }
+        ]
+      },
+      "BlockAssignment": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Index"
+          },
+          "hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Hash",
+            "description": "SHA-256 en hexadecimal minúscula (DA-02)"
+          },
+          "primary": {
+            "$ref": "#/components/schemas/NodeAddress",
+            "description": "DataNode al que el cliente envía el bloque (DA-04, DA-05)"
+          },
+          "pass": {
+            "type": "string",
+            "title": "Pass",
+            "description": "Pase de escritura (op w) con los secundarios (DA-04, DA-05)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "index",
+          "hash",
+          "primary",
+          "pass"
+        ],
+        "title": "BlockAssignment"
+      },
+      "BlockLocation": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Index"
+          },
+          "hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Hash",
+            "description": "SHA-256 en hexadecimal minúscula (DA-02)"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Size"
+          },
+          "replicas": {
+            "items": {
+              "$ref": "#/components/schemas/NodeAddress"
+            },
+            "type": "array",
+            "title": "Replicas",
+            "description": "Primero las de la zona del cliente (X-Client-Zone)"
+          },
+          "pass": {
+            "type": "string",
+            "title": "Pass",
+            "description": "Pase de lectura (op r) para este bloque"
+          }
+        },
+        "type": "object",
+        "required": [
+          "index",
+          "hash",
+          "size",
+          "replicas",
+          "pass"
+        ],
+        "title": "BlockLocation"
+      },
+      "BlockSpec": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Index"
+          },
+          "hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Hash",
+            "description": "SHA-256 en hexadecimal minúscula (DA-02)"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "index",
+          "hash",
+          "size"
+        ],
+        "title": "BlockSpec"
+      },
+      "CommitRequest": {
+        "properties": {
+          "base_version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Base Version"
+          },
+          "lock_id": {
+            "type": "string",
+            "title": "Lock Id"
+          },
+          "hashes": {
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$",
+              "description": "SHA-256 en hexadecimal minúscula (DA-02)"
+            },
+            "type": "array",
+            "title": "Hashes",
+            "description": "Todos los bloques de la versión nueva, en orden"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Size"
+          },
+          "file_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "File Sha256",
+            "description": "SHA-256 en hexadecimal minúscula (DA-02)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "base_version",
+          "lock_id",
+          "hashes",
+          "size",
+          "file_sha256"
+        ],
+        "title": "CommitRequest",
+        "examples": [
+          {
+            "base_version": 3,
+            "file_sha256": "247a8174ec0c61e4f6c2f0299b27648c9ef3dc8482f7083d01c8a389976a6a76",
+            "hashes": [
+              "6ce5a55b446b43e4e935c44695a9a09f161e8e87d1ff2359adebc5f9ee5ee5cf",
+              "b64bb9046f61749097db060781bcbbba317c08ff0ac378e9aed9a6d18217e449",
+              "8de70b36bbfaaf4bd8fecc81370e32e388e0fa57cabc32a1fbd46777ac7ac937"
+            ],
+            "lock_id": "694d8a1c2e3b4f05",
+            "size": 20971520
+          }
+        ]
+      },
+      "CommitResponse": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path",
+            "description": "Ruta absoluta dentro del espacio del usuario (RF1): empieza en /, sin / al final (salvo la raíz) y sin //; hasta 1024 bytes en UTF-8; cada componente mide de 1 a 255 bytes, no contiene el carácter nulo y no es . ni .."
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Version"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "version"
+        ],
+        "title": "CommitResponse",
+        "examples": [
+          {
+            "path": "/docs/informe.pdf",
+            "version": 4
+          }
+        ]
+      },
+      "CopyOrder": {
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "title": "Order Id"
+          },
+          "type": {
+            "type": "string",
+            "const": "copy",
+            "title": "Type"
+          },
+          "user": {
+            "type": "string",
+            "pattern": "^[a-z0-9_-]{1,32}$",
+            "title": "User",
+            "description": "Nombre de usuario"
+          },
+          "hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Hash",
+            "description": "SHA-256 en hexadecimal minúscula (DA-02)"
+          },
+          "target": {
+            "$ref": "#/components/schemas/NodeAddress",
+            "description": "DataNode destino, con su dirección interna (puerto 9444)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "order_id",
+          "type",
+          "user",
+          "hash",
+          "target"
+        ],
+        "title": "CopyOrder",
+        "description": "Orden de copiar un bloque a otro DataNode (re-réplica, DA-12).\n\nEl DataNode que la recibe envía el bloque con PUT /internal/blocks/{user}/{hash} a\ntarget.address y solo la reporta en done_orders si el destino respondió 201.\nEntonces el MetaServer agrega target.node_id a stored_on.",
+        "examples": [
+          {
+            "hash": "6ce5a55b446b43e4e935c44695a9a09f161e8e87d1ff2359adebc5f9ee5ee5cf",
+            "order_id": "b7e3c2a1-4d5f-4a6b-8c9d-0e1f2a3b4c5d",
+            "target": {
+              "address": "172.31.0.10:9444",
+              "node_id": "dn1"
+            },
+            "type": "copy",
+            "user": "ana"
+          }
+        ]
+      },
+      "CreateUserRequest": {
+        "properties": {
+          "user": {
+            "type": "string",
+            "pattern": "^[a-z0-9_-]{1,32}$",
+            "title": "User",
+            "description": "Nombre de usuario"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user",
+          "password"
+        ],
+        "title": "CreateUserRequest",
+        "examples": [
+          {
+            "password": "otra-clave-larga-de-prueba",
+            "user": "bruno"
+          }
+        ]
+      },
+      "DataNodeStatus": {
+        "properties": {
+          "node_id": {
+            "type": "string",
+            "title": "Node Id"
+          },
+          "address": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[^:\\s]+:[0-9]{1,5}$",
+                "description": "ip:puerto, con la IP privada (DA-11)"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address",
+            "description": "ip:puerto público; null si el nodo está caído"
+          },
+          "zone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Zone",
+            "description": "null si el nodo está caído"
+          },
+          "free_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Free Bytes",
+            "description": "null si el nodo está caído"
+          },
+          "alive": {
+            "type": "boolean",
+            "title": "Alive",
+            "description": "Si su clave en /nodes/dn/ sigue viva (DA-12)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "node_id",
+          "address",
+          "zone",
+          "free_bytes",
+          "alive"
+        ],
+        "title": "DataNodeStatus"
+      },
+      "DeleteOrder": {
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "title": "Order Id"
+          },
+          "type": {
+            "type": "string",
+            "const": "delete",
+            "title": "Type"
+          },
+          "user": {
+            "type": "string",
+            "pattern": "^[a-z0-9_-]{1,32}$",
+            "title": "User",
+            "description": "Nombre de usuario"
+          },
+          "hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Hash",
+            "description": "SHA-256 en hexadecimal minúscula (DA-02)"
+          },
+          "written_before_ms": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Written Before Ms",
+            "description": "Borra solo si escribió el bloque antes de este instante (ms desde epoch, UTC); ya es T - DFS_GC_CLOCK_MARGIN_S"
+          }
+        },
+        "type": "object",
+        "required": [
+          "order_id",
+          "type",
+          "user",
+          "hash",
+          "written_before_ms"
+        ],
+        "title": "DeleteOrder",
+        "description": "Orden de borrar una copia de un bloque.\n\nLa usan la limpieza, para un bloque que ya sacó de etcd (DA-02), y el líder, para la\ncopia que sobra cuando un DataNode vuelve y el bloque queda con más de 3 copias vivas (DA-12).",
+        "examples": [
+          {
+            "hash": "29124d08ab194c99b65e04622016f3306c6c39ce331241c0e089b10e66411607",
+            "order_id": "d9a5e4c3-6f7b-4c8d-8e1f-2a3b4c5d6e7f",
+            "type": "delete",
+            "user": "ana",
+            "written_before_ms": 1793628599000
+          }
+        ]
+      },
+      "DirEntry": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "dir",
+              "file"
+            ],
+            "title": "Type"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Size",
+            "description": "Bytes; 0 en directorios"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Version",
+            "description": "Versión actual; 0 en directorios"
+          },
+          "modified_at": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Modified At",
+            "description": "ms desde epoch (UTC) de la versión actual; en directorios, su created_at; en la raíz /, 0"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "type",
+          "size",
+          "version",
+          "modified_at"
+        ],
+        "title": "DirEntry"
+      },
+      "ErrorCode": {
+        "type": "string",
+        "enum": [
+          "E_BAD_REQUEST",
+          "E_AUTH",
+          "E_FORBIDDEN",
+          "E_NOT_FOUND",
+          "E_EXISTS",
+          "E_NOT_EMPTY",
+          "E_VERSION_CONFLICT",
+          "E_LOCK_LOST",
+          "E_CHECKSUM",
+          "E_REPLICAS",
+          "E_LOCKED",
+          "E_INTERNAL",
+          "E_NOT_IMPLEMENTED",
+          "E_UNAVAILABLE",
+          "E_NO_SPACE"
+        ],
+        "title": "ErrorCode"
+      },
+      "ErrorResponse": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorCode"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "retryable": {
+            "type": "boolean",
+            "title": "Retryable"
+          }
+        },
+        "type": "object",
+        "required": [
+          "error",
+          "message",
+          "retryable"
+        ],
+        "title": "ErrorResponse",
+        "description": "Cuerpo de toda respuesta de error (DA-06).",
+        "examples": [
+          {
+            "error": "E_VERSION_CONFLICT",
+            "message": "la versión base 3 ya no es la actual (4)",
+            "retryable": false
+          }
+        ]
+      },
+      "FileBlocksResponse": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path",
+            "description": "Ruta absoluta dentro del espacio del usuario (RF1): empieza en /, sin / al final (salvo la raíz) y sin //; hasta 1024 bytes en UTF-8; cada componente mide de 1 a 255 bytes, no contiene el carácter nulo y no es . ni .."
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Version"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Size"
+          },
+          "block_size": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Block Size",
+            "description": "Tamaño de bloque con que se escribió (DFS_BLOCK_MIB)"
+          },
+          "file_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "File Sha256",
+            "description": "SHA-256 del archivo completo"
+          },
+          "blocks": {
+            "items": {
+              "$ref": "#/components/schemas/BlockLocation"
+            },
+            "type": "array",
+            "title": "Blocks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "version",
+          "size",
+          "block_size",
+          "file_sha256",
+          "blocks"
+        ],
+        "title": "FileBlocksResponse",
+        "examples": [
+          {
+            "block_size": 8388608,
+            "blocks": [
+              {
+                "hash": "6ce5a55b446b43e4e935c44695a9a09f161e8e87d1ff2359adebc5f9ee5ee5cf",
+                "index": 0,
+                "pass": "eyJ1c2VyIjoiYW5hIiwiaGFzaCI6IjZjZTVhNTViNDQ2YjQzZTRlOTM1YzQ0Njk1YTlhMDlmMTYxZThlODdkMWZmMjM1OWFkZWJjNWY5ZWU1ZWU1Y2YiLCJvcCI6InIiLCJleHAiOjE3OTM2Mjg3MjB9.z0WiI50c6AfbzmSTYB6-LFdTZU2A_zS5GxQMu4iXGKc",
+                "replicas": [
+                  {
+                    "address": "172.31.16.10:9443",
+                    "node_id": "dn2"
+                  },
+                  {
+                    "address": "172.31.32.10:9443",
+                    "node_id": "dn3"
+                  },
+                  {
+                    "address": "172.31.16.20:9443",
+                    "node_id": "dn4"
+                  }
+                ],
+                "size": 8388608
+              },
+              {
+                "hash": "b64bb9046f61749097db060781bcbbba317c08ff0ac378e9aed9a6d18217e449",
+                "index": 1,
+                "pass": "eyJ1c2VyIjoiYW5hIiwiaGFzaCI6ImI2NGJiOTA0NmY2MTc0OTA5N2RiMDYwNzgxYmNiYmJhMzE3YzA4ZmYwYWMzNzhlOWFlZDlhNmQxODIxN2U0NDkiLCJvcCI6InIiLCJleHAiOjE3OTM2Mjg3MjB9.2aosUSBmyey_LOS0yTROyMoPw2rPa0MY_RU8amfSLuc",
+                "replicas": [
+                  {
+                    "address": "172.31.0.10:9443",
+                    "node_id": "dn1"
+                  },
+                  {
+                    "address": "172.31.32.10:9443",
+                    "node_id": "dn3"
+                  },
+                  {
+                    "address": "172.31.16.20:9443",
+                    "node_id": "dn4"
+                  }
+                ],
+                "size": 8388608
+              },
+              {
+                "hash": "8de70b36bbfaaf4bd8fecc81370e32e388e0fa57cabc32a1fbd46777ac7ac937",
+                "index": 2,
+                "pass": "eyJ1c2VyIjoiYW5hIiwiaGFzaCI6IjhkZTcwYjM2YmJmYWFmNGJkOGZlY2M4MTM3MGUzMmUzODhlMGZhNTdjYWJjMzJhMWZiZDQ2Nzc3YWM3YWM5MzciLCJvcCI6InIiLCJleHAiOjE3OTM2Mjg3MjB9.3ekV5C2jUAFMJZrsb41tDqE8q4U2BD-FH1hE1DwYnYg",
+                "replicas": [
+                  {
+                    "address": "172.31.0.10:9443",
+                    "node_id": "dn1"
+                  },
+                  {
+                    "address": "172.31.16.10:9443",
+                    "node_id": "dn2"
+                  },
+                  {
+                    "address": "172.31.32.10:9443",
+                    "node_id": "dn3"
+                  }
+                ],
+                "size": 4194304
+              }
+            ],
+            "file_sha256": "247a8174ec0c61e4f6c2f0299b27648c9ef3dc8482f7083d01c8a389976a6a76",
+            "path": "/docs/informe.pdf",
+            "size": 20971520,
+            "version": 4
+          }
+        ]
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ok",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "HealthResponse",
+        "examples": [
+          {
+            "status": "ok"
+          }
+        ]
+      },
+      "LockRequest": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path",
+            "description": "Ruta absoluta dentro del espacio del usuario (RF1): empieza en /, sin / al final (salvo la raíz) y sin //; hasta 1024 bytes en UTF-8; cada componente mide de 1 a 255 bytes, no contiene el carácter nulo y no es . ni .."
+          },
+          "wait_s": {
+            "type": "integer",
+            "maximum": 60.0,
+            "minimum": 0.0,
+            "title": "Wait S",
+            "description": "Segundos que espera en la fila, de 0 a 60; 0 = no esperar (DA-08)",
+            "default": 30
+          }
+        },
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "title": "LockRequest",
+        "examples": [
+          {
+            "path": "/docs/informe.pdf",
+            "wait_s": 30
+          }
+        ]
+      },
+      "LockResponse": {
+        "properties": {
+          "lock_id": {
+            "type": "string",
+            "title": "Lock Id",
+            "description": "Identificador opaco del lock"
+          },
+          "lease_s": {
+            "type": "integer",
+            "title": "Lease S",
+            "description": "Segundos que dura el lease si no se renueva (DFS_LOCK_LEASE_S)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "lock_id",
+          "lease_s"
+        ],
+        "title": "LockResponse",
+        "examples": [
+          {
+            "lease_s": 30,
+            "lock_id": "694d8a1c2e3b4f05"
+          }
+        ]
+      },
+      "LoginRequest": {
+        "properties": {
+          "user": {
+            "type": "string",
+            "pattern": "^[a-z0-9_-]{1,32}$",
+            "title": "User",
+            "description": "Nombre de usuario"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user",
+          "password"
+        ],
+        "title": "LoginRequest",
+        "examples": [
+          {
+            "password": "caballo-correcto-bateria",
+            "user": "ana"
+          }
+        ]
+      },
+      "LoginResponse": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token",
+            "description": "JWT (ver JwtClaims)"
+          },
+          "expires_in": {
+            "type": "integer",
+            "title": "Expires In",
+            "description": "Segundos hasta que vence (DFS_JWT_TTL_S)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "token",
+          "expires_in"
+        ],
+        "title": "LoginResponse",
+        "examples": [
+          {
+            "expires_in": 3600,
+            "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhbmEiLCJhZG1pbiI6ZmFsc2UsImlhdCI6MTc5MzYyODAwMCwiZXhwIjoxNzkzNjMxNjAwfQ.jCuFONqnGHr41k8gQqELbF7cDtJhsfrCuGdn-vYMO94"
+          }
+        ]
+      },
+      "LsResponse": {
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/DirEntry"
+            },
+            "type": "array",
+            "title": "Entries"
+          }
+        },
+        "type": "object",
+        "required": [
+          "entries"
+        ],
+        "title": "LsResponse",
+        "examples": [
+          {
+            "entries": [
+              {
+                "modified_at": 1793178900000,
+                "name": "fotos",
+                "size": 0,
+                "type": "dir",
+                "version": 0
+              },
+              {
+                "modified_at": 1793628090000,
+                "name": "informe.pdf",
+                "size": 20971520,
+                "type": "file",
+                "version": 4
+              }
+            ]
+          },
+          {
+            "entries": [
+              {
+                "modified_at": 1793628090000,
+                "name": "informe.pdf",
+                "size": 20971520,
+                "type": "file",
+                "version": 4
+              }
+            ]
+          }
+        ]
+      },
+      "MetaServerInfo": {
+        "properties": {
+          "meta_id": {
+            "type": "string",
+            "title": "Meta Id"
+          },
+          "ip": {
+            "type": "string",
+            "title": "Ip",
+            "description": "IP privada"
+          },
+          "public_port": {
+            "type": "integer",
+            "maximum": 65535.0,
+            "minimum": 1.0,
+            "title": "Public Port",
+            "description": "API pública (8443): cliente"
+          },
+          "internal_port": {
+            "type": "integer",
+            "maximum": 65535.0,
+            "minimum": 1.0,
+            "title": "Internal Port",
+            "description": "API interna (8444): DataNodes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "meta_id",
+          "ip",
+          "public_port",
+          "internal_port"
+        ],
+        "title": "MetaServerInfo",
+        "description": "Un MetaServer, como está en /nodes/meta/{meta_id} (DA-11).\n\nEn GET /admin/status va como MetaServerStatus, con esta misma forma."
+      },
+      "MetaServerListResponse": {
+        "properties": {
+          "metaservers": {
+            "items": {
+              "$ref": "#/components/schemas/MetaServerInfo"
+            },
+            "type": "array",
+            "title": "Metaservers",
+            "description": "MetaServers vivos; el cliente usa public_port y los DataNodes internal_port"
+          }
+        },
+        "type": "object",
+        "required": [
+          "metaservers"
+        ],
+        "title": "MetaServerListResponse",
+        "examples": [
+          {
+            "metaservers": [
+              {
+                "internal_port": 8444,
+                "ip": "172.31.0.10",
+                "meta_id": "meta1",
+                "public_port": 8443
+              },
+              {
+                "internal_port": 8444,
+                "ip": "172.31.16.10",
+                "meta_id": "meta2",
+                "public_port": 8443
+              },
+              {
+                "internal_port": 8444,
+                "ip": "172.31.32.10",
+                "meta_id": "meta3",
+                "public_port": 8443
+              }
+            ]
+          }
+        ]
+      },
+      "MetaServerStatus": {
+        "properties": {
+          "meta_id": {
+            "type": "string",
+            "title": "Meta Id"
+          },
+          "ip": {
+            "type": "string",
+            "title": "Ip",
+            "description": "IP privada"
+          },
+          "public_port": {
+            "type": "integer",
+            "maximum": 65535.0,
+            "minimum": 1.0,
+            "title": "Public Port",
+            "description": "API pública (8443): cliente"
+          },
+          "internal_port": {
+            "type": "integer",
+            "maximum": 65535.0,
+            "minimum": 1.0,
+            "title": "Internal Port",
+            "description": "API interna (8444): DataNodes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "meta_id",
+          "ip",
+          "public_port",
+          "internal_port"
+        ],
+        "title": "MetaServerStatus",
+        "description": "Un MetaServer en /admin/status: la misma forma que en GET /cluster/metaservers."
+      },
+      "MkdirRequest": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path",
+            "description": "Ruta absoluta dentro del espacio del usuario (RF1): empieza en /, sin / al final (salvo la raíz) y sin //; hasta 1024 bytes en UTF-8; cada componente mide de 1 a 255 bytes, no contiene el carácter nulo y no es . ni .."
+          }
+        },
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "title": "MkdirRequest",
+        "examples": [
+          {
+            "path": "/docs/fotos"
+          }
+        ]
+      },
+      "NodeAddress": {
+        "properties": {
+          "node_id": {
+            "type": "string",
+            "title": "Node Id"
+          },
+          "address": {
+            "type": "string",
+            "pattern": "^[^:\\s]+:[0-9]{1,5}$",
+            "title": "Address",
+            "description": "ip:puerto, con la IP privada (DA-11)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "node_id",
+          "address"
+        ],
+        "title": "NodeAddress",
+        "description": "Un DataNode y su dirección ip:puerto.\n\nAl cliente se le da el puerto público (9443); en la orden copy va el interno (9444)."
+      },
+      "OkResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok"
+        ],
+        "title": "OkResponse",
+        "description": "Confirmación sin más datos.",
+        "examples": [
+          {
+            "ok": true
+          }
+        ]
+      },
+      "PendingOrder": {
+        "properties": {
+          "node_id": {
+            "type": "string",
+            "title": "Node Id",
+            "description": "DataNode que debe cumplir la orden"
+          },
+          "order": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CopyOrder"
+              },
+              {
+                "$ref": "#/components/schemas/DeleteOrder"
+              }
+            ],
+            "title": "Order",
+            "discriminator": {
+              "propertyName": "type",
+              "mapping": {
+                "copy": "#/components/schemas/CopyOrder",
+                "delete": "#/components/schemas/DeleteOrder"
+              }
+            }
+          }
+        },
+        "type": "object",
+        "required": [
+          "node_id",
+          "order"
+        ],
+        "title": "PendingOrder"
+      },
+      "ReallocRequest": {
+        "properties": {
+          "indices": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Indices",
+            "description": "Índices que hay que reenviar"
+          },
+          "exclude_nodes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Exclude Nodes",
+            "description": "node_id que fallaron y no se deben usar"
+          }
+        },
+        "type": "object",
+        "required": [
+          "indices"
+        ],
+        "title": "ReallocRequest",
+        "examples": [
+          {
+            "exclude_nodes": [
+              "dn4"
+            ],
+            "indices": [
+              2
+            ]
+          }
+        ]
+      },
+      "ReallocResponse": {
+        "properties": {
+          "missing": {
+            "items": {
+              "$ref": "#/components/schemas/BlockAssignment"
+            },
+            "type": "array",
+            "title": "Missing"
+          }
+        },
+        "type": "object",
+        "required": [
+          "missing"
+        ],
+        "title": "ReallocResponse",
+        "examples": [
+          {
+            "missing": [
+              {
+                "hash": "8de70b36bbfaaf4bd8fecc81370e32e388e0fa57cabc32a1fbd46777ac7ac937",
+                "index": 2,
+                "pass": "eyJ1c2VyIjoiYW5hIiwiaGFzaCI6IjhkZTcwYjM2YmJmYWFmNGJkOGZlY2M4MTM3MGUzMmUzODhlMGZhNTdjYWJjMzJhMWZiZDQ2Nzc3YWM3YWM5MzciLCJvcCI6InciLCJzZWNvbmRhcmllcyI6WyIxNzIuMzEuMTYuMTA6OTQ0NCIsIjE3Mi4zMS4zMi4xMDo5NDQ0Il0sImV4cCI6MTc5MzYyODY2MH0.Df5QOig70VjvVVw_06qWo8BllA6DahuI9B4VxRR41uE",
+                "primary": {
+                  "address": "172.31.0.10:9443",
+                  "node_id": "dn1"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "StatResponse": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path",
+            "description": "Ruta absoluta dentro del espacio del usuario (RF1): empieza en /, sin / al final (salvo la raíz) y sin //; hasta 1024 bytes en UTF-8; cada componente mide de 1 a 255 bytes, no contiene el carácter nulo y no es . ni .."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "dir",
+              "file"
+            ],
+            "title": "Type"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Size",
+            "description": "Bytes; 0 en directorios"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Version",
+            "description": "Versión actual; 0 en directorios"
+          },
+          "modified_at": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Modified At",
+            "description": "ms desde epoch (UTC) de la versión actual; en directorios, su created_at; en la raíz /, 0"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "type",
+          "size",
+          "version",
+          "modified_at"
+        ],
+        "title": "StatResponse",
+        "examples": [
+          {
+            "modified_at": 1793628090000,
+            "path": "/docs/informe.pdf",
+            "size": 20971520,
+            "type": "file",
+            "version": 4
+          },
+          {
+            "modified_at": 0,
+            "path": "/",
+            "size": 0,
+            "type": "dir",
+            "version": 0
+          }
+        ]
+      },
+      "UnderReplicatedBlock": {
+        "properties": {
+          "user": {
+            "type": "string",
+            "pattern": "^[a-z0-9_-]{1,32}$",
+            "title": "User",
+            "description": "Nombre de usuario"
+          },
+          "hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Hash",
+            "description": "SHA-256 en hexadecimal minúscula (DA-02)"
+          },
+          "alive_on": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Alive On",
+            "description": "node_id de los DataNodes vivos que tienen el bloque"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user",
+          "hash",
+          "alive_on"
+        ],
+        "title": "UnderReplicatedBlock"
+      },
+      "UploadRequest": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path",
+            "description": "Ruta absoluta dentro del espacio del usuario (RF1): empieza en /, sin / al final (salvo la raíz) y sin //; hasta 1024 bytes en UTF-8; cada componente mide de 1 a 255 bytes, no contiene el carácter nulo y no es . ni .."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "w",
+              "a",
+              "rw"
+            ],
+            "title": "Mode",
+            "description": "Modo de open() (RF3, DA-14): w crea o reemplaza; a anexa al final; rw modifica partes reescribiendo completos los bloques que toca. a y rw sobre un archivo que no existe lo crean con base_version 0, igual que w; con rw el único offset válido es 0"
+          },
+          "base_version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Base Version",
+            "description": "Versión sobre la que se escribe; 0 si el archivo no existe"
+          },
+          "block_size": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Block Size",
+            "description": "Bytes por bloque (DA-03). Con w, o con a/rw sobre un archivo que no existe: DFS_BLOCK_MIB × 1048576. Con a/rw sobre un archivo que existe: el block_size de su versión actual. Si no coincide: 400 E_BAD_REQUEST"
+          },
+          "lock_id": {
+            "type": "string",
+            "title": "Lock Id"
+          },
+          "blocks": {
+            "items": {
+              "$ref": "#/components/schemas/BlockSpec"
+            },
+            "type": "array",
+            "title": "Blocks",
+            "description": "Bloques nuevos o cambiados de la versión que se va a publicar"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "mode",
+          "base_version",
+          "block_size",
+          "lock_id",
+          "blocks"
+        ],
+        "title": "UploadRequest",
+        "examples": [
+          {
+            "base_version": 3,
+            "block_size": 8388608,
+            "blocks": [
+              {
+                "hash": "6ce5a55b446b43e4e935c44695a9a09f161e8e87d1ff2359adebc5f9ee5ee5cf",
+                "index": 0,
+                "size": 8388608
+              },
+              {
+                "hash": "b64bb9046f61749097db060781bcbbba317c08ff0ac378e9aed9a6d18217e449",
+                "index": 1,
+                "size": 8388608
+              },
+              {
+                "hash": "8de70b36bbfaaf4bd8fecc81370e32e388e0fa57cabc32a1fbd46777ac7ac937",
+                "index": 2,
+                "size": 4194304
+              }
+            ],
+            "lock_id": "694d8a1c2e3b4f05",
+            "mode": "w",
+            "path": "/docs/informe.pdf"
+          }
+        ]
+      },
+      "UploadResponse": {
+        "properties": {
+          "upload_id": {
+            "type": "string",
+            "title": "Upload Id"
+          },
+          "present": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Present",
+            "description": "Índices cuyo bloque ya está guardado: no se envían (DA-02)"
+          },
+          "missing": {
+            "items": {
+              "$ref": "#/components/schemas/BlockAssignment"
+            },
+            "type": "array",
+            "title": "Missing",
+            "description": "Bloques que el cliente debe enviar"
+          }
+        },
+        "type": "object",
+        "required": [
+          "upload_id",
+          "present",
+          "missing"
+        ],
+        "title": "UploadResponse",
+        "examples": [
+          {
+            "missing": [
+              {
+                "hash": "b64bb9046f61749097db060781bcbbba317c08ff0ac378e9aed9a6d18217e449",
+                "index": 1,
+                "pass": "eyJ1c2VyIjoiYW5hIiwiaGFzaCI6ImI2NGJiOTA0NmY2MTc0OTA5N2RiMDYwNzgxYmNiYmJhMzE3YzA4ZmYwYWMzNzhlOWFlZDlhNmQxODIxN2U0NDkiLCJvcCI6InciLCJzZWNvbmRhcmllcyI6WyIxNzIuMzEuMTYuMjA6OTQ0NCIsIjE3Mi4zMS4wLjEwOjk0NDQiXSwiZXhwIjoxNzkzNjI4NjAwfQ.cmdifTy29ib542pe296X3Ud6ZGdU0WvkgzZm4fWTDC0",
+                "primary": {
+                  "address": "172.31.32.10:9443",
+                  "node_id": "dn3"
+                }
+              },
+              {
+                "hash": "8de70b36bbfaaf4bd8fecc81370e32e388e0fa57cabc32a1fbd46777ac7ac937",
+                "index": 2,
+                "pass": "eyJ1c2VyIjoiYW5hIiwiaGFzaCI6IjhkZTcwYjM2YmJmYWFmNGJkOGZlY2M4MTM3MGUzMmUzODhlMGZhNTdjYWJjMzJhMWZiZDQ2Nzc3YWM3YWM5MzciLCJvcCI6InciLCJzZWNvbmRhcmllcyI6WyIxNzIuMzEuMC4xMDo5NDQ0IiwiMTcyLjMxLjE2LjEwOjk0NDQiXSwiZXhwIjoxNzkzNjI4NjAwfQ.Euwkh7fQO8z-ga48XdTOvZBGlqRQRL8170T6T_eotMs",
+                "primary": {
+                  "address": "172.31.16.20:9443",
+                  "node_id": "dn4"
+                }
+              }
+            ],
+            "present": [
+              0
+            ],
+            "upload_id": "9b2f6d1e-4c3a-4e8b-9f1d-2a7c5e8b1d43"
+          }
+        ]
+      }
+    },
+    "securitySchemes": {
+      "JWT": {
+        "type": "http",
+        "description": "JWT de POST /api/v1/auth/login, en Authorization: Bearer (DA-10).",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  }
+}
