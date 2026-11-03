@@ -46,26 +46,31 @@ ERROR_TABLE: dict[ErrorCode, ErrorSpec] = {
     ErrorCode.E_BAD_REQUEST: ErrorSpec(
         400,
         False,
-        "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+        "parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo "
+        "equivocado, o borrar la raíz /",
     ),
     ErrorCode.E_AUTH: ErrorSpec(401, False, "JWT ausente, inválido o vencido, o pase ausente o vencido"),
     ErrorCode.E_FORBIDDEN: ErrorSpec(
         403,
         False,
         "pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; "
-        "o lock_id o upload_id de otro usuario",
+        "lock_id o upload_id de otro usuario; o un nodo que usa la API interna con un node_id ajeno",
     ),
-    ErrorCode.E_NOT_FOUND: ErrorSpec(404, False, "ruta, bloque o lease inexistente"),
+    ErrorCode.E_NOT_FOUND: ErrorSpec(404, False, "ruta, bloque, versión o lease inexistente"),
     ErrorCode.E_EXISTS: ErrorSpec(409, False, "la ruta ya existe"),
     ErrorCode.E_NOT_EMPTY: ErrorSpec(409, False, "directorio no vacío"),
     ErrorCode.E_VERSION_CONFLICT: ErrorSpec(409, False, "la versión base ya no es la actual"),
     ErrorCode.E_LOCK_LOST: ErrorSpec(409, False, "el lock venció o es de otro archivo"),
     ErrorCode.E_CHECKSUM: ErrorSpec(422, True, "el contenido no coincide con el hash, o la copia guardada está dañada"),
-    ErrorCode.E_REPLICAS: ErrorSpec(422, True, "no hay 2 copias confirmadas en zonas distintas"),
+    ErrorCode.E_REPLICAS: ErrorSpec(
+        422, True, "faltan copias: no se alcanzó DFS_W al escribir, o no hay copias vivas en 2 zonas distintas"
+    ),
     ErrorCode.E_LOCKED: ErrorSpec(423, True, "lock ocupado y la espera se agotó o era 0"),
     ErrorCode.E_INTERNAL: ErrorSpec(500, False, "error inesperado del servidor"),
     ErrorCode.E_NOT_IMPLEMENTED: ErrorSpec(501, False, "ruta todavía sin implementar"),
-    ErrorCode.E_UNAVAILABLE: ErrorSpec(503, True, "etcd sin mayoría o sin DataNodes suficientes"),
+    ErrorCode.E_UNAVAILABLE: ErrorSpec(
+        503, True, "etcd sin mayoría o sin DataNodes vivos suficientes"
+    ),
     ErrorCode.E_NO_SPACE: ErrorSpec(507, False, "sin espacio en los DataNodes"),
 }
 

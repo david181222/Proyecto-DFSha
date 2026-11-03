@@ -36,7 +36,7 @@
             }
           },
           "400": {
-            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
             "content": {
               "application/json": {
                 "schema": {
@@ -46,7 +46,7 @@
                   "E_BAD_REQUEST": {
                     "value": {
                       "error": "E_BAD_REQUEST",
-                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
                       "retryable": false
                     }
                   }
@@ -74,7 +74,7 @@
             }
           },
           "503": {
-            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes vivos suficientes.",
             "content": {
               "application/json": {
                 "schema": {
@@ -84,7 +84,7 @@
                   "E_UNAVAILABLE": {
                     "value": {
                       "error": "E_UNAVAILABLE",
-                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "message": "etcd sin mayoría o sin DataNodes vivos suficientes",
                       "retryable": true
                     }
                   }
@@ -115,7 +115,7 @@
             }
           },
           "503": {
-            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes vivos suficientes.",
             "content": {
               "application/json": {
                 "schema": {
@@ -125,7 +125,7 @@
                   "E_UNAVAILABLE": {
                     "value": {
                       "error": "E_UNAVAILABLE",
-                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "message": "etcd sin mayoría o sin DataNodes vivos suficientes",
                       "retryable": true
                     }
                   }
@@ -177,14 +177,14 @@
             }
           },
           "400": {
-            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_BAD_REQUEST": {
                     "value": {
                       "error": "E_BAD_REQUEST",
-                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
                       "retryable": false
                     }
                   }
@@ -215,14 +215,14 @@
             }
           },
           "404": {
-            "description": "`E_NOT_FOUND`: ruta, bloque o lease inexistente.",
+            "description": "`E_NOT_FOUND`: ruta, bloque, versión o lease inexistente.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_NOT_FOUND": {
                     "value": {
                       "error": "E_NOT_FOUND",
-                      "message": "ruta, bloque o lease inexistente",
+                      "message": "ruta, bloque, versión o lease inexistente",
                       "retryable": false
                     }
                   }
@@ -234,14 +234,14 @@
             }
           },
           "503": {
-            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes vivos suficientes.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_UNAVAILABLE": {
                     "value": {
                       "error": "E_UNAVAILABLE",
-                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "message": "etcd sin mayoría o sin DataNodes vivos suficientes",
                       "retryable": true
                     }
                   }
@@ -296,14 +296,14 @@
             }
           },
           "400": {
-            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_BAD_REQUEST": {
                     "value": {
                       "error": "E_BAD_REQUEST",
-                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
                       "retryable": false
                     }
                   }
@@ -334,14 +334,14 @@
             }
           },
           "404": {
-            "description": "`E_NOT_FOUND`: ruta, bloque o lease inexistente.",
+            "description": "`E_NOT_FOUND`: ruta, bloque, versión o lease inexistente.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_NOT_FOUND": {
                     "value": {
                       "error": "E_NOT_FOUND",
-                      "message": "ruta, bloque o lease inexistente",
+                      "message": "ruta, bloque, versión o lease inexistente",
                       "retryable": false
                     }
                   }
@@ -353,14 +353,14 @@
             }
           },
           "503": {
-            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes vivos suficientes.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_UNAVAILABLE": {
                     "value": {
                       "error": "E_UNAVAILABLE",
-                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "message": "etcd sin mayoría o sin DataNodes vivos suficientes",
                       "retryable": true
                     }
                   }
@@ -404,7 +404,7 @@
             }
           },
           "400": {
-            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
             "content": {
               "application/json": {
                 "schema": {
@@ -414,7 +414,7 @@
                   "E_BAD_REQUEST": {
                     "value": {
                       "error": "E_BAD_REQUEST",
-                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
                       "retryable": false
                     }
                   }
@@ -442,7 +442,7 @@
             }
           },
           "404": {
-            "description": "`E_NOT_FOUND`: ruta, bloque o lease inexistente.",
+            "description": "`E_NOT_FOUND`: ruta, bloque, versión o lease inexistente.",
             "content": {
               "application/json": {
                 "schema": {
@@ -452,7 +452,7 @@
                   "E_NOT_FOUND": {
                     "value": {
                       "error": "E_NOT_FOUND",
-                      "message": "ruta, bloque o lease inexistente",
+                      "message": "ruta, bloque, versión o lease inexistente",
                       "retryable": false
                     }
                   }
@@ -480,7 +480,7 @@
             }
           },
           "503": {
-            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes vivos suficientes.",
             "content": {
               "application/json": {
                 "schema": {
@@ -490,7 +490,7 @@
                   "E_UNAVAILABLE": {
                     "value": {
                       "error": "E_UNAVAILABLE",
-                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "message": "etcd sin mayoría o sin DataNodes vivos suficientes",
                       "retryable": true
                     }
                   }
@@ -547,14 +547,14 @@
             }
           },
           "400": {
-            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_BAD_REQUEST": {
                     "value": {
                       "error": "E_BAD_REQUEST",
-                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
                       "retryable": false
                     }
                   }
@@ -585,14 +585,14 @@
             }
           },
           "404": {
-            "description": "`E_NOT_FOUND`: ruta, bloque o lease inexistente.",
+            "description": "`E_NOT_FOUND`: ruta, bloque, versión o lease inexistente.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_NOT_FOUND": {
                     "value": {
                       "error": "E_NOT_FOUND",
-                      "message": "ruta, bloque o lease inexistente",
+                      "message": "ruta, bloque, versión o lease inexistente",
                       "retryable": false
                     }
                   }
@@ -623,14 +623,14 @@
             }
           },
           "503": {
-            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes vivos suficientes.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_UNAVAILABLE": {
                     "value": {
                       "error": "E_UNAVAILABLE",
-                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "message": "etcd sin mayoría o sin DataNodes vivos suficientes",
                       "retryable": true
                     }
                   }
@@ -650,7 +650,7 @@
           "fs"
         ],
         "summary": "Borrar un archivo",
-        "description": "Toma internamente el lock del archivo con espera 0 (423 E_LOCKED si está ocupado); el cliente no llama a /locks para borrar. La versión actual pasa a retenida (replaced_at) y la limpieza la quita cuando vence DFS_RETENTION_S (DA-02, DA-14). 400 E_BAD_REQUEST si la ruta es un directorio, incluida la raíz /. RF1.",
+        "description": "Toma internamente el lock del archivo con espera 0 (423 E_LOCKED si está ocupado); el cliente no llama a /locks para borrar. La versión actual pasa a retenida (replaced_at) y la limpieza la quita cuando vence DFS_RETENTION_S (DA-02, DA-14); un lector que ya la tenía abierta termina con los pases que tiene, pero no puede renovarlos porque la ruta ya no existe. 400 E_BAD_REQUEST si la ruta es un directorio, incluida la raíz /. RF1.",
         "operationId": "rm",
         "security": [
           {
@@ -685,14 +685,14 @@
             }
           },
           "400": {
-            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_BAD_REQUEST": {
                     "value": {
                       "error": "E_BAD_REQUEST",
-                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
                       "retryable": false
                     }
                   }
@@ -723,14 +723,14 @@
             }
           },
           "404": {
-            "description": "`E_NOT_FOUND`: ruta, bloque o lease inexistente.",
+            "description": "`E_NOT_FOUND`: ruta, bloque, versión o lease inexistente.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_NOT_FOUND": {
                     "value": {
                       "error": "E_NOT_FOUND",
-                      "message": "ruta, bloque o lease inexistente",
+                      "message": "ruta, bloque, versión o lease inexistente",
                       "retryable": false
                     }
                   }
@@ -761,14 +761,14 @@
             }
           },
           "503": {
-            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes vivos suficientes.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_UNAVAILABLE": {
                     "value": {
                       "error": "E_UNAVAILABLE",
-                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "message": "etcd sin mayoría o sin DataNodes vivos suficientes",
                       "retryable": true
                     }
                   }
@@ -788,7 +788,7 @@
           "locks"
         ],
         "summary": "Tomar el lock de un archivo",
-        "description": "Lock de etcd con su propio lease de DFS_LOCK_LEASE_S: los escritores esperan en fila, en orden de llegada, hasta wait_s segundos (de 0 a 60; 30 si no se indica). Si la espera se agota o era 0, responde 423 E_LOCKED y revoca el lease del intento. Si la ruta es un directorio, 400 E_BAD_REQUEST. DA-08.",
+        "description": "Lock de etcd con su propio lease de DFS_LOCK_LEASE_S: los escritores esperan en fila, en orden de llegada, hasta wait_s segundos (de 0 a 60; 30 si no se indica). Si la espera se agota o era 0, responde 423 E_LOCKED y revoca el lease del intento. Si la ruta es un directorio, 400 E_BAD_REQUEST. La ruta no tiene que existir todavía: con w se toma antes de crear el archivo, y el directorio padre se comprueba en la reserva y en el commit. DA-08.",
         "operationId": "acquire_lock",
         "requestBody": {
           "content": {
@@ -812,7 +812,7 @@
             }
           },
           "400": {
-            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
             "content": {
               "application/json": {
                 "schema": {
@@ -822,7 +822,7 @@
                   "E_BAD_REQUEST": {
                     "value": {
                       "error": "E_BAD_REQUEST",
-                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
                       "retryable": false
                     }
                   }
@@ -869,7 +869,7 @@
             }
           },
           "503": {
-            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes vivos suficientes.",
             "content": {
               "application/json": {
                 "schema": {
@@ -879,7 +879,7 @@
                   "E_UNAVAILABLE": {
                     "value": {
                       "error": "E_UNAVAILABLE",
-                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "message": "etcd sin mayoría o sin DataNodes vivos suficientes",
                       "retryable": true
                     }
                   }
@@ -955,14 +955,14 @@
             }
           },
           "403": {
-            "description": "`E_FORBIDDEN`: pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario.",
+            "description": "`E_FORBIDDEN`: pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; lock_id o upload_id de otro usuario; o un nodo que usa la API interna con un node_id ajeno.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_FORBIDDEN": {
                     "value": {
                       "error": "E_FORBIDDEN",
-                      "message": "pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario",
+                      "message": "pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; lock_id o upload_id de otro usuario; o un nodo que usa la API interna con un node_id ajeno",
                       "retryable": false
                     }
                   }
@@ -993,14 +993,14 @@
             }
           },
           "503": {
-            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes vivos suficientes.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_UNAVAILABLE": {
                     "value": {
                       "error": "E_UNAVAILABLE",
-                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "message": "etcd sin mayoría o sin DataNodes vivos suficientes",
                       "retryable": true
                     }
                   }
@@ -1072,14 +1072,14 @@
             }
           },
           "403": {
-            "description": "`E_FORBIDDEN`: pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario.",
+            "description": "`E_FORBIDDEN`: pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; lock_id o upload_id de otro usuario; o un nodo que usa la API interna con un node_id ajeno.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_FORBIDDEN": {
                     "value": {
                       "error": "E_FORBIDDEN",
-                      "message": "pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario",
+                      "message": "pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; lock_id o upload_id de otro usuario; o un nodo que usa la API interna con un node_id ajeno",
                       "retryable": false
                     }
                   }
@@ -1091,14 +1091,14 @@
             }
           },
           "503": {
-            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes vivos suficientes.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_UNAVAILABLE": {
                     "value": {
                       "error": "E_UNAVAILABLE",
-                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "message": "etcd sin mayoría o sin DataNodes vivos suficientes",
                       "retryable": true
                     }
                   }
@@ -1118,7 +1118,7 @@
           "files"
         ],
         "summary": "Ubicar los bloques de un archivo",
-        "description": "Manifiesto de una versión (la actual si no se indica) con las réplicas de cada bloque y un pase de lectura por bloque. Las réplicas de la zona de X-Client-Zone van primero. Una versión reemplazada se puede leer durante DFS_RETENTION_S (DA-14). Si la ruta es un directorio, 400 E_BAD_REQUEST. Para renovar pases vencidos, se vuelve a pedir con la misma version. DA-05, DA-10, DA-11.",
+        "description": "Manifiesto de una versión (la actual si no se indica). Por bloque: stored_on, todos los DataNodes con copia según etcd; replicas, los vivos, primero los de la zona de X-Client-Zone (vacía si ninguno está vivo); y un pase de lectura. Una versión reemplazada se puede leer durante DFS_RETENTION_S (DA-14); después, 404 E_NOT_FOUND y el cliente reabre el archivo. Si la ruta es un directorio, 400 E_BAD_REQUEST. Para renovar pases vencidos, se vuelve a pedir con la misma version. DA-05, DA-10, DA-11, DA-14.",
         "operationId": "file_blocks",
         "security": [
           {
@@ -1193,14 +1193,14 @@
             }
           },
           "400": {
-            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_BAD_REQUEST": {
                     "value": {
                       "error": "E_BAD_REQUEST",
-                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
                       "retryable": false
                     }
                   }
@@ -1231,14 +1231,14 @@
             }
           },
           "404": {
-            "description": "`E_NOT_FOUND`: ruta, bloque o lease inexistente.",
+            "description": "`E_NOT_FOUND`: ruta, bloque, versión o lease inexistente.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_NOT_FOUND": {
                     "value": {
                       "error": "E_NOT_FOUND",
-                      "message": "ruta, bloque o lease inexistente",
+                      "message": "ruta, bloque, versión o lease inexistente",
                       "retryable": false
                     }
                   }
@@ -1250,14 +1250,14 @@
             }
           },
           "503": {
-            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes vivos suficientes.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_UNAVAILABLE": {
                     "value": {
                       "error": "E_UNAVAILABLE",
-                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "message": "etcd sin mayoría o sin DataNodes vivos suficientes",
                       "retryable": true
                     }
                   }
@@ -1277,7 +1277,7 @@
           "uploads"
         ],
         "summary": "Reservar una subida",
-        "description": "Recibe los bloques nuevos o cambiados y responde cuáles ya están guardados (present) y, para los que faltan, el DataNode primario y un pase de escritura con los secundarios (2, o 1 si solo quedan 2 DataNodes vivos). Exige el lock del archivo (modos w, a y rw): si el lock_id venció o es de otro archivo, 409 E_LOCK_LOST. /uploads/{upload_id} queda atada al lease de ese lock y desaparece sola si vence. 400 E_BAD_REQUEST si la escritura deja un hueco, si la ruta es un directorio o si block_size no es el que corresponde; 404 E_NOT_FOUND si el directorio padre no existe o es un archivo. a y rw sobre un archivo que no existe lo crean con base_version 0, igual que w. DA-02, DA-03, DA-04, DA-05, DA-14.",
+        "description": "Recibe los bloques nuevos o cambiados y responde cuáles ya están guardados con copias vivas en 2 zonas (present) y, para los que faltan, el DataNode primario y un pase de escritura con los secundarios (2, o 1 si solo quedan 2 DataNodes vivos). 503 E_UNAVAILABLE si no hay al menos DFS_W DataNodes vivos que cubran 2 zonas; 507 E_NO_SPACE si los hay pero sin espacio. 400 E_BAD_REQUEST si blocks repite un índice o trae un bloque mayor que block_size. Exige el lock del archivo (modos w, a y rw): si el lock_id venció o es de otro archivo, 409 E_LOCK_LOST. /uploads/{upload_id} queda atada al lease de ese lock y desaparece sola si vence. 400 E_BAD_REQUEST si la escritura deja un hueco, si la ruta es un directorio o si block_size no es el que corresponde; 404 E_NOT_FOUND si el directorio padre no existe o es un archivo. a y rw sobre un archivo que no existe lo crean con base_version 0, igual que w. DA-02, DA-03, DA-04, DA-05, DA-14.",
         "operationId": "create_upload",
         "requestBody": {
           "content": {
@@ -1301,7 +1301,7 @@
             }
           },
           "400": {
-            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1311,7 +1311,7 @@
                   "E_BAD_REQUEST": {
                     "value": {
                       "error": "E_BAD_REQUEST",
-                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
                       "retryable": false
                     }
                   }
@@ -1339,7 +1339,7 @@
             }
           },
           "403": {
-            "description": "`E_FORBIDDEN`: pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario.",
+            "description": "`E_FORBIDDEN`: pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; lock_id o upload_id de otro usuario; o un nodo que usa la API interna con un node_id ajeno.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1349,7 +1349,7 @@
                   "E_FORBIDDEN": {
                     "value": {
                       "error": "E_FORBIDDEN",
-                      "message": "pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario",
+                      "message": "pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; lock_id o upload_id de otro usuario; o un nodo que usa la API interna con un node_id ajeno",
                       "retryable": false
                     }
                   }
@@ -1358,7 +1358,7 @@
             }
           },
           "404": {
-            "description": "`E_NOT_FOUND`: ruta, bloque o lease inexistente.",
+            "description": "`E_NOT_FOUND`: ruta, bloque, versión o lease inexistente.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1368,7 +1368,7 @@
                   "E_NOT_FOUND": {
                     "value": {
                       "error": "E_NOT_FOUND",
-                      "message": "ruta, bloque o lease inexistente",
+                      "message": "ruta, bloque, versión o lease inexistente",
                       "retryable": false
                     }
                   }
@@ -1403,7 +1403,7 @@
             }
           },
           "503": {
-            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes vivos suficientes.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1413,7 +1413,7 @@
                   "E_UNAVAILABLE": {
                     "value": {
                       "error": "E_UNAVAILABLE",
-                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "message": "etcd sin mayoría o sin DataNodes vivos suficientes",
                       "retryable": true
                     }
                   }
@@ -1454,7 +1454,7 @@
           "uploads"
         ],
         "summary": "Pedir otros destinos para bloques que fallaron",
-        "description": "Asigna un primario nuevo, sin los nodos de exclude_nodes, a los bloques que recibieron un error reintentable. El cliente reenvía el mismo bloque, con el mismo hash. Con los mismos índices y exclude_nodes vacío sirve para renovar pases de escritura vencidos. DA-04, DA-10.",
+        "description": "Asigna un primario nuevo, sin los nodos de exclude_nodes, a los bloques que recibieron un error reintentable. El cliente reenvía el mismo bloque, con el mismo hash. Con los mismos índices y exclude_nodes vacío sirve para renovar pases de escritura vencidos. Sin al menos DFS_W DataNodes vivos que cubran 2 zonas (sin contar exclude_nodes), 503 E_UNAVAILABLE. DA-04, DA-05, DA-10.",
         "operationId": "realloc_upload",
         "security": [
           {
@@ -1499,14 +1499,14 @@
             }
           },
           "400": {
-            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_BAD_REQUEST": {
                     "value": {
                       "error": "E_BAD_REQUEST",
-                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
                       "retryable": false
                     }
                   }
@@ -1537,14 +1537,14 @@
             }
           },
           "403": {
-            "description": "`E_FORBIDDEN`: pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario.",
+            "description": "`E_FORBIDDEN`: pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; lock_id o upload_id de otro usuario; o un nodo que usa la API interna con un node_id ajeno.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_FORBIDDEN": {
                     "value": {
                       "error": "E_FORBIDDEN",
-                      "message": "pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario",
+                      "message": "pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; lock_id o upload_id de otro usuario; o un nodo que usa la API interna con un node_id ajeno",
                       "retryable": false
                     }
                   }
@@ -1556,14 +1556,14 @@
             }
           },
           "404": {
-            "description": "`E_NOT_FOUND`: ruta, bloque o lease inexistente.",
+            "description": "`E_NOT_FOUND`: ruta, bloque, versión o lease inexistente.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_NOT_FOUND": {
                     "value": {
                       "error": "E_NOT_FOUND",
-                      "message": "ruta, bloque o lease inexistente",
+                      "message": "ruta, bloque, versión o lease inexistente",
                       "retryable": false
                     }
                   }
@@ -1575,14 +1575,14 @@
             }
           },
           "503": {
-            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes vivos suficientes.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_UNAVAILABLE": {
                     "value": {
                       "error": "E_UNAVAILABLE",
-                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "message": "etcd sin mayoría o sin DataNodes vivos suficientes",
                       "retryable": true
                     }
                   }
@@ -1621,7 +1621,7 @@
           "uploads"
         ],
         "summary": "Publicar la versión nueva",
-        "description": "Transacción de etcd que publica la versión nueva solo si la versión base sigue siendo la actual (si no, 409 E_VERSION_CONFLICT) y la clave del lock sigue existiendo y es la de ese archivo (si no, 409 E_LOCK_LOST). Si algún bloque no tiene 2 copias confirmadas en zonas distintas, 422 E_REPLICAS: el cliente vuelve a llamar POST /uploads con la misma lista y envía los bloques que falten. 404 E_NOT_FOUND si el directorio padre ya no existe o es un archivo. Con base_version 0 crea la entrada con una transacción que exige que la clave no exista y que el padre no haya cambiado (docs/contratos.md, sección 8). DA-02, DA-08, G1, G4.",
+        "description": "Transacción de etcd que publica la versión nueva solo si la versión base sigue siendo la actual (si no, 409 E_VERSION_CONFLICT) y la clave del lock sigue existiendo y es la de ese archivo (si no, 409 E_LOCK_LOST). Si algún bloque no tiene copias vivas en 2 zonas, 422 E_REPLICAS: el cliente vuelve a llamar POST /uploads con la misma lista y envía los bloques que falten. 400 E_BAD_REQUEST si hashes y size no forman un archivo sin huecos o si a o rw lo truncan (docs/contratos.md, sección 2). 404 E_NOT_FOUND si el directorio padre ya no existe o es un archivo. Con base_version 0 crea la entrada con una transacción que exige que la clave no exista y que el padre no haya cambiado (docs/contratos.md, sección 8). DA-02, DA-08, G1, G4.",
         "operationId": "commit_upload",
         "security": [
           {
@@ -1666,14 +1666,14 @@
             }
           },
           "400": {
-            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_BAD_REQUEST": {
                     "value": {
                       "error": "E_BAD_REQUEST",
-                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
                       "retryable": false
                     }
                   }
@@ -1704,14 +1704,14 @@
             }
           },
           "403": {
-            "description": "`E_FORBIDDEN`: pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario.",
+            "description": "`E_FORBIDDEN`: pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; lock_id o upload_id de otro usuario; o un nodo que usa la API interna con un node_id ajeno.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_FORBIDDEN": {
                     "value": {
                       "error": "E_FORBIDDEN",
-                      "message": "pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario",
+                      "message": "pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; lock_id o upload_id de otro usuario; o un nodo que usa la API interna con un node_id ajeno",
                       "retryable": false
                     }
                   }
@@ -1723,14 +1723,14 @@
             }
           },
           "404": {
-            "description": "`E_NOT_FOUND`: ruta, bloque o lease inexistente.",
+            "description": "`E_NOT_FOUND`: ruta, bloque, versión o lease inexistente.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_NOT_FOUND": {
                     "value": {
                       "error": "E_NOT_FOUND",
-                      "message": "ruta, bloque o lease inexistente",
+                      "message": "ruta, bloque, versión o lease inexistente",
                       "retryable": false
                     }
                   }
@@ -1768,14 +1768,14 @@
             }
           },
           "422": {
-            "description": "`E_REPLICAS`: no hay 2 copias confirmadas en zonas distintas.",
+            "description": "`E_REPLICAS`: faltan copias: no se alcanzó DFS_W al escribir, o no hay copias vivas en 2 zonas distintas.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_REPLICAS": {
                     "value": {
                       "error": "E_REPLICAS",
-                      "message": "no hay 2 copias confirmadas en zonas distintas",
+                      "message": "faltan copias: no se alcanzó DFS_W al escribir, o no hay copias vivas en 2 zonas distintas",
                       "retryable": true
                     }
                   }
@@ -1787,14 +1787,14 @@
             }
           },
           "503": {
-            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes vivos suficientes.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_UNAVAILABLE": {
                     "value": {
                       "error": "E_UNAVAILABLE",
-                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "message": "etcd sin mayoría o sin DataNodes vivos suficientes",
                       "retryable": true
                     }
                   }
@@ -1838,7 +1838,7 @@
             }
           },
           "400": {
-            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1848,7 +1848,7 @@
                   "E_BAD_REQUEST": {
                     "value": {
                       "error": "E_BAD_REQUEST",
-                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
                       "retryable": false
                     }
                   }
@@ -1876,7 +1876,7 @@
             }
           },
           "403": {
-            "description": "`E_FORBIDDEN`: pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario.",
+            "description": "`E_FORBIDDEN`: pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; lock_id o upload_id de otro usuario; o un nodo que usa la API interna con un node_id ajeno.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1886,7 +1886,7 @@
                   "E_FORBIDDEN": {
                     "value": {
                       "error": "E_FORBIDDEN",
-                      "message": "pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario",
+                      "message": "pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; lock_id o upload_id de otro usuario; o un nodo que usa la API interna con un node_id ajeno",
                       "retryable": false
                     }
                   }
@@ -1914,7 +1914,7 @@
             }
           },
           "503": {
-            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes vivos suficientes.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1924,7 +1924,7 @@
                   "E_UNAVAILABLE": {
                     "value": {
                       "error": "E_UNAVAILABLE",
-                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "message": "etcd sin mayoría o sin DataNodes vivos suficientes",
                       "retryable": true
                     }
                   }
@@ -1979,7 +1979,7 @@
             }
           },
           "403": {
-            "description": "`E_FORBIDDEN`: pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario.",
+            "description": "`E_FORBIDDEN`: pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; lock_id o upload_id de otro usuario; o un nodo que usa la API interna con un node_id ajeno.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1989,7 +1989,7 @@
                   "E_FORBIDDEN": {
                     "value": {
                       "error": "E_FORBIDDEN",
-                      "message": "pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario",
+                      "message": "pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; lock_id o upload_id de otro usuario; o un nodo que usa la API interna con un node_id ajeno",
                       "retryable": false
                     }
                   }
@@ -1998,7 +1998,7 @@
             }
           },
           "503": {
-            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes vivos suficientes.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2008,7 +2008,7 @@
                   "E_UNAVAILABLE": {
                     "value": {
                       "error": "E_UNAVAILABLE",
-                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "message": "etcd sin mayoría o sin DataNodes vivos suficientes",
                       "retryable": true
                     }
                   }
@@ -2251,13 +2251,21 @@
             "minimum": 1.0,
             "title": "Size"
           },
+          "stored_on": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Stored On",
+            "description": "Todos los DataNodes con copia según etcd, vivos o caídos; lo muestra dfs stat --blocks (DA-16)"
+          },
           "replicas": {
             "items": {
               "$ref": "#/components/schemas/NodeAddress"
             },
             "type": "array",
             "title": "Replicas",
-            "description": "Primero las de la zona del cliente (X-Client-Zone)"
+            "description": "DataNodes vivos con copia, primero los de la zona del cliente (X-Client-Zone); vacía si ninguno está vivo"
           },
           "pass": {
             "type": "string",
@@ -2270,6 +2278,7 @@
           "index",
           "hash",
           "size",
+          "stored_on",
           "replicas",
           "pass"
         ],
@@ -2735,7 +2744,12 @@
                     "node_id": "dn4"
                   }
                 ],
-                "size": 8388608
+                "size": 8388608,
+                "stored_on": [
+                  "dn2",
+                  "dn3",
+                  "dn4"
+                ]
               },
               {
                 "hash": "b64bb9046f61749097db060781bcbbba317c08ff0ac378e9aed9a6d18217e449",
@@ -2755,7 +2769,12 @@
                     "node_id": "dn4"
                   }
                 ],
-                "size": 8388608
+                "size": 8388608,
+                "stored_on": [
+                  "dn3",
+                  "dn4",
+                  "dn1"
+                ]
               },
               {
                 "hash": "8de70b36bbfaaf4bd8fecc81370e32e388e0fa57cabc32a1fbd46777ac7ac937",
@@ -2775,7 +2794,12 @@
                     "node_id": "dn3"
                   }
                 ],
-                "size": 4194304
+                "size": 4194304,
+                "stored_on": [
+                  "dn1",
+                  "dn2",
+                  "dn3"
+                ]
               }
             ],
             "file_sha256": "247a8174ec0c61e4f6c2f0299b27648c9ef3dc8482f7083d01c8a389976a6a76",
@@ -2837,7 +2861,7 @@
           "lock_id": {
             "type": "string",
             "title": "Lock Id",
-            "description": "Identificador opaco del lock"
+            "description": "ID del lease de etcd de este intento, en hexadecimal; la clave del lock es /locks/{user}{path}/{lock_id}. Para el cliente es opaco"
           },
           "lease_s": {
             "type": "integer",
@@ -3360,7 +3384,7 @@
             },
             "type": "array",
             "title": "Blocks",
-            "description": "Bloques nuevos o cambiados de la versión que se va a publicar"
+            "description": "Bloques nuevos o cambiados de la versión que se va a publicar; índices sin repetir y ningún bloque de más de block_size bytes. Que block_size sea el correcto lo comprueba la reserva"
           }
         },
         "type": "object",
@@ -3412,7 +3436,7 @@
             },
             "type": "array",
             "title": "Present",
-            "description": "Índices cuyo bloque ya está guardado: no se envían (DA-02)"
+            "description": "Índices cuyo bloque ya está guardado con copias vivas en 2 zonas: no se envían (DA-02)"
           },
           "missing": {
             "items": {

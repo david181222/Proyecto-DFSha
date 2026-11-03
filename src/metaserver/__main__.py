@@ -8,6 +8,7 @@ from metaserver.public_api import app as public_app
 
 def main() -> None:
     settings = Settings()
+    settings.require("node_id", "node_ip", "etcd_endpoints")
     run(settings, (public_app, settings.meta_public_port), (internal_app, settings.meta_internal_port))
 
 

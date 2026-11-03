@@ -170,3 +170,14 @@ def test_refuses_a_folder_inside_the_repo_that_git_would_upload(fake_repo):
     with pytest.raises(SystemExit):
         gen_secrets.main(["--out", str(out), "--nodes", "dn1=10.88.0.31"])
     assert not out.exists()
+
+
+def test_without_git_it_stops_before_writing_anything_inside_the_repo(tmp_path, monkeypatch):
+    """Sin git no se puede comprobar que la carpeta esté ignorada: no escribe secretos ni toca .gitignore."""
+    monkeypatch.setattr(gen_secrets, "REPO_ROOT", tmp_path.resolve())
+    monkeypatch.setattr(gen_secrets.shutil, "which", lambda name: None)  # git no está instalado
+    out = tmp_path / "secrets" / "local"
+    with pytest.raises(SystemExit, match="no se encontró git"):
+        gen_secrets.main(["--out", str(out), "--nodes", "dn1=10.88.0.31"])
+    assert not out.exists()
+    assert not (tmp_path / ".gitignore").exists()

@@ -45,14 +45,14 @@
             }
           },
           "400": {
-            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_BAD_REQUEST": {
                     "value": {
                       "error": "E_BAD_REQUEST",
-                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
                       "retryable": false
                     }
                   }
@@ -83,14 +83,14 @@
             }
           },
           "403": {
-            "description": "`E_FORBIDDEN`: pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario.",
+            "description": "`E_FORBIDDEN`: pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; lock_id o upload_id de otro usuario; o un nodo que usa la API interna con un node_id ajeno.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_FORBIDDEN": {
                     "value": {
                       "error": "E_FORBIDDEN",
-                      "message": "pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario",
+                      "message": "pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; lock_id o upload_id de otro usuario; o un nodo que usa la API interna con un node_id ajeno",
                       "retryable": false
                     }
                   }
@@ -102,7 +102,7 @@
             }
           },
           "422": {
-            "description": "`E_CHECKSUM`: el contenido no coincide con el hash, o la copia guardada está dañada. `E_REPLICAS`: no hay 2 copias confirmadas en zonas distintas.",
+            "description": "`E_CHECKSUM`: el contenido no coincide con el hash, o la copia guardada está dañada. `E_REPLICAS`: faltan copias: no se alcanzó DFS_W al escribir, o no hay copias vivas en 2 zonas distintas.",
             "content": {
               "application/json": {
                 "examples": {
@@ -116,7 +116,7 @@
                   "E_REPLICAS": {
                     "value": {
                       "error": "E_REPLICAS",
-                      "message": "no hay 2 copias confirmadas en zonas distintas",
+                      "message": "faltan copias: no se alcanzó DFS_W al escribir, o no hay copias vivas en 2 zonas distintas",
                       "retryable": true
                     }
                   }
@@ -128,14 +128,14 @@
             }
           },
           "503": {
-            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes vivos suficientes.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_UNAVAILABLE": {
                     "value": {
                       "error": "E_UNAVAILABLE",
-                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "message": "etcd sin mayoría o sin DataNodes vivos suficientes",
                       "retryable": true
                     }
                   }
@@ -183,7 +183,7 @@
           "blocks"
         ],
         "summary": "Leer un bloque",
-        "description": "Descifra el bloque guardado y lo devuelve en binario, sin cifrar. Exige un pase de lectura. Si la copia está dañada (falla AES-GCM o el hash no coincide), responde 422 E_CHECKSUM, la borra y la reporta en bad_blocks de su siguiente latido; el cliente prueba la siguiente réplica. DA-09, DA-10, DA-12.",
+        "description": "Descifra el bloque guardado y lo devuelve en binario, sin cifrar. Exige un pase de lectura. Si la copia está dañada (falla AES-GCM o el hash no coincide), responde 422 E_CHECKSUM, la borra y la reporta en bad_blocks de su siguiente latido; el cliente prueba la siguiente réplica. Si no tiene el bloque, 404 E_NOT_FOUND, y también lo reporta en bad_blocks: el MetaServer creía que la copia estaba aquí. DA-09, DA-10, DA-12.",
         "operationId": "get_block",
         "security": [
           {
@@ -238,14 +238,14 @@
             }
           },
           "403": {
-            "description": "`E_FORBIDDEN`: pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario.",
+            "description": "`E_FORBIDDEN`: pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; lock_id o upload_id de otro usuario; o un nodo que usa la API interna con un node_id ajeno.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_FORBIDDEN": {
                     "value": {
                       "error": "E_FORBIDDEN",
-                      "message": "pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; o lock_id o upload_id de otro usuario",
+                      "message": "pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; lock_id o upload_id de otro usuario; o un nodo que usa la API interna con un node_id ajeno",
                       "retryable": false
                     }
                   }
@@ -259,14 +259,14 @@
             }
           },
           "404": {
-            "description": "`E_NOT_FOUND`: ruta, bloque o lease inexistente.",
+            "description": "`E_NOT_FOUND`: ruta, bloque, versión o lease inexistente.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_NOT_FOUND": {
                     "value": {
                       "error": "E_NOT_FOUND",
-                      "message": "ruta, bloque o lease inexistente",
+                      "message": "ruta, bloque, versión o lease inexistente",
                       "retryable": false
                     }
                   }

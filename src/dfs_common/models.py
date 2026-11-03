@@ -20,7 +20,7 @@ dn3 en us-east-1c (172.31.32.10) y dn4 en us-east-1b (172.31.16.20).
 
 from typing import Annotated, Literal
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
 SHA256_PATTERN = r"^[0-9a-f]{64}$"
 # El usuario aparece en rutas HTTP, en claves de etcd y en /data/{usuario}/ (DA-02).
@@ -360,7 +360,10 @@ class LockRequest(BaseModel):
 class LockResponse(BaseModel):
     model_config = _examples({"lock_id": "694d8a1c2e3b4f05", "lease_s": 30})
 
-    lock_id: str = Field(description="Identificador opaco del lock")
+    lock_id: str = Field(
+        description="ID del lease de etcd de este intento, en hexadecimal; la clave del lock es "
+        "/locks/{user}{path}/{lock_id}. Para el cliente es opaco"
+    )
     lease_s: int = Field(description="Segundos que dura el lease si no se renueva (DFS_LOCK_LEASE_S)")
 
 
@@ -370,7 +373,13 @@ class BlockLocation(BaseModel):
     index: int = Field(ge=0)
     hash: Sha256Hex
     size: int = Field(ge=1)
-    replicas: list[NodeAddress] = Field(description="Primero las de la zona del cliente (X-Client-Zone)")
+    stored_on: list[str] = Field(
+        description="Todos los DataNodes con copia según etcd, vivos o caídos; lo muestra dfs stat --blocks (DA-16)"
+    )
+    replicas: list[NodeAddress] = Field(
+        description="DataNodes vivos con copia, primero los de la zona del cliente (X-Client-Zone); "
+        "vacía si ninguno está vivo"
+    )
     pass_: str = Field(alias="pass", description="Pase de lectura (op r) para este bloque")
 
 
@@ -387,6 +396,7 @@ class FileBlocksResponse(BaseModel):
                     "index": 0,
                     "hash": _H0,
                     "size": 8388608,
+                    "stored_on": ["dn2", "dn3", "dn4"],
                     "replicas": [
                         {"node_id": "dn2", "address": "172.31.16.10:9443"},
                         {"node_id": "dn3", "address": "172.31.32.10:9443"},
@@ -398,6 +408,7 @@ class FileBlocksResponse(BaseModel):
                     "index": 1,
                     "hash": _H1,
                     "size": 8388608,
+                    "stored_on": ["dn3", "dn4", "dn1"],
                     "replicas": [
                         {"node_id": "dn1", "address": "172.31.0.10:9443"},
                         {"node_id": "dn3", "address": "172.31.32.10:9443"},
@@ -409,6 +420,7 @@ class FileBlocksResponse(BaseModel):
                     "index": 2,
                     "hash": _H2,
                     "size": 4194304,
+                    "stored_on": ["dn1", "dn2", "dn3"],
                     "replicas": [
                         {"node_id": "dn1", "address": "172.31.0.10:9443"},
                         {"node_id": "dn2", "address": "172.31.16.10:9443"},
@@ -464,7 +476,20 @@ class UploadRequest(BaseModel):
         "actual. Si no coincide: 400 E_BAD_REQUEST",
     )
     lock_id: str
-    blocks: list[BlockSpec] = Field(description="Bloques nuevos o cambiados de la versión que se va a publicar")
+    blocks: list[BlockSpec] = Field(
+        description="Bloques nuevos o cambiados de la versión que se va a publicar; índices sin repetir "
+        "y ningún bloque de más de block_size bytes. Que block_size sea el correcto lo comprueba la reserva"
+    )
+
+    @model_validator(mode="after")
+    def check_blocks(self) -> "UploadRequest":
+        """Lo que se puede validar sin leer etcd; si falla, la API responde 400 E_BAD_REQUEST."""
+        indices = [block.index for block in self.blocks]
+        if len(indices) != len(set(indices)):
+            raise ValueError("blocks tiene índices repetidos")
+        if any(block.size > self.block_size for block in self.blocks):
+            raise ValueError("un bloque de blocks mide más que block_size")
+        return self
 
 
 class BlockAssignment(BaseModel):
@@ -499,7 +524,9 @@ class UploadResponse(BaseModel):
     )
 
     upload_id: str
-    present: list[int] = Field(description="Índices cuyo bloque ya está guardado: no se envían (DA-02)")
+    present: list[int] = Field(
+        description="Índices cuyo bloque ya está guardado con copias vivas en 2 zonas: no se envían (DA-02)"
+    )
     missing: list[BlockAssignment] = Field(description="Bloques que el cliente debe enviar")
 
 
@@ -666,6 +693,7 @@ class RegisterRequest(BaseModel):
     model_config = _examples(
         {
             "node_id": "dn1",
+            "disk_id": "5f0c7e2a-9d41-4b8e-a3c6-1e2f3a4b5c6d",
             "ip": "172.31.0.10",
             "public_port": 9443,
             "internal_port": 9444,
@@ -675,7 +703,14 @@ class RegisterRequest(BaseModel):
     )
 
     node_id: str
-    ip: str = Field(description="IP privada del DataNode")
+    disk_id: str = Field(
+        min_length=1,
+        description="Identificador del disco de datos: el DataNode lo crea la primera vez que arranca con "
+        "DFS_DATA_DIR vacía y lo guarda en DFS_DATA_DIR/.disk_id (el punto evita chocar con la carpeta de "
+        "un usuario). Si la carpeta tiene bloques pero no .disk_id, el DataNode no arranca. Si el valor "
+        "cambia, el disco es nuevo y no tiene bloques",
+    )
+    ip: str = Field(description="IP privada del DataNode (DFS_NODE_IP)")
     public_port: int = Field(ge=1, le=65535)
     internal_port: int = Field(ge=1, le=65535)
     zone: str
@@ -709,7 +744,8 @@ class HeartbeatRequest(BaseModel):
     )
     bad_blocks: list[BlockRef] = Field(
         default_factory=list,
-        description="Copias dañadas que el DataNode encontró y borró; el MetaServer las quita de stored_on",
+        description="Copias que el DataNode encontró dañadas (y borró) o que debía tener y no encontró; "
+        "el MetaServer quita este nodo de su stored_on",
     )
 
 

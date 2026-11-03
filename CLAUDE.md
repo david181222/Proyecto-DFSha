@@ -31,6 +31,9 @@ README.md
 pyproject.toml          dependencias; instalación con pip install -e ".[dev]"
 .env.example            variables de entorno con valores de ejemplo (nunca secretos)
 .gitignore
+.gitattributes          finales LF en lo que corre dentro de Linux (Dockerfile, .yml, .sh)
+Dockerfile              una sola imagen para MetaServer, DataNode y cliente
+compose.local.yml       sistema completo en un PC, con TLS 1.3 y mTLS (README, "Correr en local")
 docs/
   enunciado.pdf
   DFSha_FaseII_Matriz_y_Decisiones_v5.pdf    documento oficial de decisiones
@@ -44,7 +47,8 @@ src/
   datanode/             DataNode: API pública (9443) e interna (9444)
   dfs_client/           cliente y CLI dfs
 infra/                  scripts de AWS (DA-15)
-scripts/                utilidades: exportar OpenAPI, generar certificados
+scripts/                export_openapi.py (OpenAPI) y gen_secrets.py (CA, certificados y secretos)
+secrets/                secretos generados en local; git lo ignora
 tests/
 ```
 

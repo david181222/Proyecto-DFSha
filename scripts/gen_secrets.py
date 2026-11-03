@@ -22,6 +22,7 @@ import datetime
 import ipaddress
 import re
 import secrets
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -58,6 +59,9 @@ def check_ignored_by_git(out: Path) -> None:
     """Si <out> cae dentro del repositorio, exige que git lo ignore (el repositorio es público)."""
     if not out.resolve().is_relative_to(REPO_ROOT):
         return
+    if shutil.which("git") is None:
+        # Sin git no se puede comprobar: no se escribe nada, ni secretos ni .gitignore.
+        raise SystemExit(f"no se encontró git para comprobar que {out} esté ignorado; instala git o usa --out fuera del repositorio")
     gitignore = REPO_ROOT / ".gitignore"
     lines = gitignore.read_text(encoding="utf-8").splitlines() if gitignore.exists() else []
     if "secrets/" not in lines:
