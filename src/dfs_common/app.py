@@ -23,14 +23,19 @@ MTLS_SCHEME: dict[str, Any] = {
 }
 
 
-def create_app(title: str, description: str, mtls: bool = False) -> FastAPI:
-    """Crea una app de DFSha. mtls=True para las APIs internas (puertos 8444 y 9444)."""
+def create_app(title: str, description: str, mtls: bool = False, lifespan: Any = None) -> FastAPI:
+    """Crea una app de DFSha. mtls=True para las APIs internas (puertos 8444 y 9444).
+
+    lifespan: lo que la app hace al arrancar y al apagarse (por ejemplo, conectarse a etcd).
+    Corre al levantar el servidor, nunca al importar.
+    """
     app = FastAPI(
         title=title,
         description=description,
         version=API_VERSION,
         # operationId = nombre de la función, en vez del nombre largo que arma FastAPI.
         generate_unique_id_function=lambda route: route.name,
+        lifespan=lifespan,
     )
     install_error_handlers(app)
     _adjust_openapi(app, mtls)

@@ -8,15 +8,18 @@ Toda ruta de archivo se resuelve dentro del espacio del usuario del token, así 
 aquí no existe "ruta de otro usuario". 403 E_FORBIDDEN solo aparece en /admin sin
 rol de administrador y con un lock_id o upload_id de otro usuario.
 
-Por ahora son stubs. Tienen su firma, su modelo de respuesta y sus errores, pero
-responden 501 E_NOT_IMPLEMENTED; solo GET /health funciona.
-Correr en local: uvicorn metaserver.public_api:app --port 8443
+Implementadas: health, login y POST /admin/users (tarea 07), y ls, stat, mkdir, rmdir
+y rm (tarea 08). Las demás son stubs: tienen su firma, su modelo de respuesta y sus
+errores, pero responden 501 E_NOT_IMPLEMENTED.
+
+Al arrancar, el lifespan conecta con etcd, lee la clave del JWT y crea el primer
+administrador (metaserver.deps y metaserver.auth). Se arranca con python -m metaserver.
 """
 
+from contextlib import asynccontextmanager
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, Path, Query
-from fastapi.security import HTTPBearer
+from fastapi import APIRouter, Depends, FastAPI, Header, Path, Query
 from pydantic import AfterValidator
 
 from dfs_common.app import create_app
@@ -44,14 +47,14 @@ from dfs_common.models import (
     UploadResponse,
     check_dfs_path,
 )
+from dfs_common.security import create_jwt
+from metaserver import auth, fs
+from metaserver.auth import CurrentUser, jwt_auth, require_admin
+from metaserver.deps import EtcdDep, JwtSecretDep, SettingsDep, open_resources
+from metaserver.keys import user_key
 
-# auto_error=False: si falta el token, la ruta (no FastAPI) responde 401 E_AUTH.
-jwt_auth = HTTPBearer(
-    auto_error=False,
-    scheme_name="JWT",
-    bearerFormat="JWT",
-    description="JWT de POST /api/v1/auth/login, en Authorization: Bearer (DA-10).",
-)
+# Las rutas que todavía son stubs declaran el JWT así; las implementadas lo exigen con
+# require_user o require_admin, que dependen del mismo jwt_auth (el OpenAPI no cambia).
 JWT = [Depends(jwt_auth)]
 
 # Una ruta inválida responde 400 E_BAD_REQUEST (check_dfs_path).
@@ -96,8 +99,14 @@ router = APIRouter(prefix="/api/v1")
     description="Verifica la contraseña (Argon2id) y entrega un JWT que dura DFS_JWT_TTL_S. Sin autenticación. DA-10.",
     responses=error_responses(ErrorCode.E_BAD_REQUEST, ErrorCode.E_AUTH, ErrorCode.E_UNAVAILABLE),
 )
-def login(body: LoginRequest):
-    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+async def login(body: LoginRequest, etcd: EtcdDep, settings: SettingsDep, secret: JwtSecretDep):
+    stored = await etcd.get(user_key(body.user))
+    user = stored.json() if stored else None
+    # Usuario inexistente y contraseña mala dan la misma respuesta: no se revela cuál falló.
+    if user is None or not await auth.password_matches(user["password_hash"], body.password):
+        raise DFSError(ErrorCode.E_AUTH, "usuario o contraseña incorrectos")
+    token = create_jwt(body.user, user["is_admin"], secret, settings.jwt_ttl_s)
+    return LoginResponse(token=token, expires_in=settings.jwt_ttl_s)
 
 
 @router.get(
@@ -127,7 +136,6 @@ def list_metaservers():
         "Entradas del directorio con nombre, tipo, tamaño, versión y fecha. La raíz / existe siempre. "
         "Sobre un archivo devuelve ese archivo como única entrada, como ls archivo en Linux. RF1."
     ),
-    dependencies=JWT,
     responses=error_responses(
         ErrorCode.E_BAD_REQUEST,
         ErrorCode.E_AUTH,
@@ -135,8 +143,8 @@ def list_metaservers():
         ErrorCode.E_UNAVAILABLE,
     ),
 )
-def ls(path: PathQuery):
-    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+async def ls(path: PathQuery, claims: CurrentUser, etcd: EtcdDep):
+    return await fs.ls(etcd, claims.sub, path)
 
 
 @router.get(
@@ -148,7 +156,6 @@ def ls(path: PathQuery):
         "Tipo, tamaño, versión actual y fecha. Un directorio tiene tamaño 0, versión 0 y su fecha de "
         "creación; la raíz /, que no se guarda en etcd, tiene modified_at 0. RF1."
     ),
-    dependencies=JWT,
     responses=error_responses(
         ErrorCode.E_BAD_REQUEST,
         ErrorCode.E_AUTH,
@@ -156,8 +163,8 @@ def ls(path: PathQuery):
         ErrorCode.E_UNAVAILABLE,
     ),
 )
-def stat(path: PathQuery):
-    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+async def stat(path: PathQuery, claims: CurrentUser, etcd: EtcdDep):
+    return await fs.stat(etcd, claims.sub, path)
 
 
 @router.post(
@@ -170,7 +177,6 @@ def stat(path: PathQuery):
         "haya cambiado (docs/contratos.md, sección 8). No crea los padres: si el padre no existe o es "
         "un archivo, 404 E_NOT_FOUND. Si la ruta ya existe (incluida la raíz /), 409 E_EXISTS. RF1."
     ),
-    dependencies=JWT,
     responses=error_responses(
         ErrorCode.E_BAD_REQUEST,
         ErrorCode.E_AUTH,
@@ -179,8 +185,9 @@ def stat(path: PathQuery):
         ErrorCode.E_UNAVAILABLE,
     ),
 )
-def mkdir(body: MkdirRequest):
-    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+async def mkdir(body: MkdirRequest, claims: CurrentUser, etcd: EtcdDep):
+    await fs.mkdir(etcd, claims.sub, body.path)
+    return OkResponse(ok=True)
 
 
 @router.delete(
@@ -193,7 +200,6 @@ def mkdir(body: MkdirRequest):
         "claves debajo (docs/contratos.md, sección 8); 409 E_NOT_EMPTY si tiene entradas. "
         "400 E_BAD_REQUEST si la ruta es un archivo o la raíz /, que existe siempre. RF1."
     ),
-    dependencies=JWT,
     responses=error_responses(
         ErrorCode.E_BAD_REQUEST,
         ErrorCode.E_AUTH,
@@ -202,8 +208,9 @@ def mkdir(body: MkdirRequest):
         ErrorCode.E_UNAVAILABLE,
     ),
 )
-def rmdir(path: RemovablePathQuery):
-    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+async def rmdir(path: RemovablePathQuery, claims: CurrentUser, etcd: EtcdDep):
+    await fs.rmdir(etcd, claims.sub, path)
+    return OkResponse(ok=True)
 
 
 @router.delete(
@@ -219,7 +226,6 @@ def rmdir(path: RemovablePathQuery):
         "400 E_BAD_REQUEST si la ruta es un directorio, "
         "incluida la raíz /. RF1."
     ),
-    dependencies=JWT,
     responses=error_responses(
         ErrorCode.E_BAD_REQUEST,
         ErrorCode.E_AUTH,
@@ -228,8 +234,9 @@ def rmdir(path: RemovablePathQuery):
         ErrorCode.E_UNAVAILABLE,
     ),
 )
-def rm(path: RemovablePathQuery):
-    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+async def rm(path: RemovablePathQuery, claims: CurrentUser, etcd: EtcdDep, settings: SettingsDep):
+    await fs.rm(etcd, claims.sub, path, settings.lock_lease_s)
+    return OkResponse(ok=True)
 
 
 # --- Locks (DA-08) ---
@@ -432,7 +439,7 @@ def commit_upload(upload_id: UploadIdPath, body: CommitRequest):
     tags=["admin"],
     summary="Crear un usuario",
     description="Crea un usuario con la contraseña guardada en Argon2id. Requiere JWT con admin=true. DA-10.",
-    dependencies=JWT,
+    dependencies=[Depends(require_admin)],
     responses=error_responses(
         ErrorCode.E_BAD_REQUEST,
         ErrorCode.E_AUTH,
@@ -441,8 +448,10 @@ def commit_upload(upload_id: UploadIdPath, body: CommitRequest):
         ErrorCode.E_UNAVAILABLE,
     ),
 )
-def create_user(body: CreateUserRequest):
-    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+async def create_user(body: CreateUserRequest, etcd: EtcdDep):
+    if not await auth.create_user(etcd, body.user, body.password):
+        raise DFSError(ErrorCode.E_EXISTS, f"el usuario {body.user} ya existe")
+    return OkResponse(ok=True)
 
 
 @router.get(
@@ -472,8 +481,17 @@ def health():
     return HealthResponse(status="ok")
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Al arrancar: recursos (configuración, etcd, clave del JWT) y primer administrador (sección 2)."""
+    async with open_resources(app):
+        await auth.create_first_admin(app.state.etcd, app.state.settings)
+        yield
+
+
 app = create_app(
     title="DFSha · MetaServer público",
     description="API pública del MetaServer (puerto 8443, HTTPS). Contrato legible en docs/contratos.md.",
+    lifespan=lifespan,
 )
 app.include_router(router)
