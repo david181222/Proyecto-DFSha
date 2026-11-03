@@ -25,6 +25,7 @@ x-dfs-times: &dfs-times
   DFS_GC_MIN_AGE_S: ${DFS_GC_MIN_AGE_S:-}
   DFS_LOCK_RENEW_S: ${DFS_LOCK_RENEW_S:-}
   DFS_GC_CLOCK_MARGIN_S: ${DFS_GC_CLOCK_MARGIN_S:-}
+  DFS_LEADER_SCAN_S: ${DFS_LEADER_SCAN_S:-}
   DFS_JWT_TTL_S: ${DFS_JWT_TTL_S:-}
   DFS_PASS_TTL_S: ${DFS_PASS_TTL_S:-}
 
@@ -131,6 +132,9 @@ services:
   meta1:
     <<: *dfs
     command: ["python", "-m", "metaserver"]
+    # Arranca cuando el etcd de su zona está sano (healthy implica que el clúster tiene mayoría).
+    depends_on:
+      etcd1: {condition: service_healthy}
     networks: {dfs: {ipv4_address: 10.88.0.21}}
     environment:
       <<: *meta-env
@@ -148,6 +152,9 @@ services:
   meta2:
     <<: *dfs
     command: ["python", "-m", "metaserver"]
+    # Arranca cuando el etcd de su zona está sano (healthy implica que el clúster tiene mayoría).
+    depends_on:
+      etcd2: {condition: service_healthy}
     networks: {dfs: {ipv4_address: 10.88.0.22}}
     environment:
       <<: *meta-env
@@ -165,6 +172,9 @@ services:
   meta3:
     <<: *dfs
     command: ["python", "-m", "metaserver"]
+    # Arranca cuando el etcd de su zona está sano (healthy implica que el clúster tiene mayoría).
+    depends_on:
+      etcd3: {condition: service_healthy}
     networks: {dfs: {ipv4_address: 10.88.0.23}}
     environment:
       <<: *meta-env

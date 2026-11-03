@@ -12,7 +12,7 @@
           "internal"
         ],
         "summary": "Registrar un DataNode",
-        "description": "El DataNode se registra al arrancar con su IP privada (DFS_NODE_IP), puertos, zona y espacio libre. El MetaServer guarda /nodes/dn/{node_id} atada a un lease de DFS_NODE_LEASE_S y responde cada cuánto enviar el latido. DA-11.",
+        "description": "El DataNode se registra al arrancar con su IP privada (DFS_NODE_IP), puertos, zona y espacio libre. El MetaServer guarda /nodes/dn/{node_id} atada a un lease de DFS_NODE_LEASE_S y responde cada cuánto enviar el latido. Si disk_id no es el que tenía guardado en /nodes/disk/{node_id}, el disco es nuevo: primero quita el nodo de todos los stored_on y después guarda el disk_id nuevo. La IP de origen debe ser la del cuerpo y, si node_id ya está vivo, la que tiene registrada; si no, 403 E_FORBIDDEN. DA-11, DA-12.",
         "operationId": "register",
         "requestBody": {
           "content": {
@@ -36,7 +36,7 @@
             }
           },
           "400": {
-            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
             "content": {
               "application/json": {
                 "schema": {
@@ -46,7 +46,26 @@
                   "E_BAD_REQUEST": {
                     "value": {
                       "error": "E_BAD_REQUEST",
-                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "retryable": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`E_FORBIDDEN`: pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; lock_id o upload_id de otro usuario; o un nodo que usa la API interna con un node_id ajeno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_FORBIDDEN": {
+                    "value": {
+                      "error": "E_FORBIDDEN",
+                      "message": "pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; lock_id o upload_id de otro usuario; o un nodo que usa la API interna con un node_id ajeno",
                       "retryable": false
                     }
                   }
@@ -55,7 +74,7 @@
             }
           },
           "503": {
-            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes vivos suficientes.",
             "content": {
               "application/json": {
                 "schema": {
@@ -65,7 +84,7 @@
                   "E_UNAVAILABLE": {
                     "value": {
                       "error": "E_UNAVAILABLE",
-                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "message": "etcd sin mayoría o sin DataNodes vivos suficientes",
                       "retryable": true
                     }
                   }
@@ -87,7 +106,7 @@
           "internal"
         ],
         "summary": "Latido de un DataNode",
-        "description": "Renueva el lease del nodo, borra las órdenes cumplidas (done_orders) y responde las pendientes de /orders/{node_id}/. Por cada copy cumplida agrega target.node_id a stored_on; por cada bloque de bad_blocks quita este nodo de stored_on, y la re-réplica repone la copia. Si el lease ya venció, 404 E_NOT_FOUND y el DataNode se registra de nuevo. DA-12.",
+        "description": "Renueva el lease del nodo, borra las órdenes cumplidas (done_orders) y responde las pendientes de /orders/{node_id}/. Por cada copy cumplida agrega target.node_id a stored_on; por cada bloque de bad_blocks (copia dañada o que no encontró) quita este nodo de stored_on, y la re-réplica repone la copia. Si el lease ya venció, 404 E_NOT_FOUND y el DataNode se registra de nuevo. La IP de origen debe ser la registrada para node_id; si no, 403 E_FORBIDDEN. DA-12.",
         "operationId": "heartbeat",
         "requestBody": {
           "content": {
@@ -111,7 +130,7 @@
             }
           },
           "400": {
-            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
             "content": {
               "application/json": {
                 "schema": {
@@ -121,7 +140,26 @@
                   "E_BAD_REQUEST": {
                     "value": {
                       "error": "E_BAD_REQUEST",
-                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "retryable": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`E_FORBIDDEN`: pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; lock_id o upload_id de otro usuario; o un nodo que usa la API interna con un node_id ajeno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_FORBIDDEN": {
+                    "value": {
+                      "error": "E_FORBIDDEN",
+                      "message": "pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; lock_id o upload_id de otro usuario; o un nodo que usa la API interna con un node_id ajeno",
                       "retryable": false
                     }
                   }
@@ -130,7 +168,7 @@
             }
           },
           "404": {
-            "description": "`E_NOT_FOUND`: ruta, bloque o lease inexistente.",
+            "description": "`E_NOT_FOUND`: ruta, bloque, versión o lease inexistente.",
             "content": {
               "application/json": {
                 "schema": {
@@ -140,7 +178,7 @@
                   "E_NOT_FOUND": {
                     "value": {
                       "error": "E_NOT_FOUND",
-                      "message": "ruta, bloque o lease inexistente",
+                      "message": "ruta, bloque, versión o lease inexistente",
                       "retryable": false
                     }
                   }
@@ -149,7 +187,7 @@
             }
           },
           "503": {
-            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes vivos suficientes.",
             "content": {
               "application/json": {
                 "schema": {
@@ -159,7 +197,7 @@
                   "E_UNAVAILABLE": {
                     "value": {
                       "error": "E_UNAVAILABLE",
-                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "message": "etcd sin mayoría o sin DataNodes vivos suficientes",
                       "retryable": true
                     }
                   }
@@ -181,7 +219,7 @@
           "internal"
         ],
         "summary": "Confirmar dónde quedó un bloque",
-        "description": "Lo llama el DataNode primario cuando el bloque quedó en W nodos, antes de responderle al cliente. El MetaServer busca en /nodes/dn/ la zona de cada nodo de stored_on (un nodo sin clave, caído, no cuenta). Si las copias no cubren 2 zonas, responde 422 E_REPLICAS y no escribe nada; el primario le pasa ese error al cliente. Si no, escribe /blocks/{user}/{hash}, y si ya existía une las dos listas stored_on sin repetir. DA-04, DA-05.",
+        "description": "Lo llama el DataNode primario cuando el bloque quedó en W nodos, antes de responderle al cliente. El MetaServer busca en /nodes/dn/ la zona de cada nodo de stored_on (un nodo sin clave, caído, no cuenta). Si las copias no cubren 2 zonas, responde 422 E_REPLICAS y no escribe nada; el primario le pasa ese error al cliente. Si no, escribe /blocks/{user}/{hash}, y si ya existía une las dos listas stored_on sin repetir. La IP de origen debe ser la del primario (el primer nodo de stored_on); si no, 403 E_FORBIDDEN. DA-04, DA-05.",
         "operationId": "confirm_block",
         "requestBody": {
           "content": {
@@ -205,7 +243,7 @@
             }
           },
           "400": {
-            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
             "content": {
               "application/json": {
                 "schema": {
@@ -215,7 +253,26 @@
                   "E_BAD_REQUEST": {
                     "value": {
                       "error": "E_BAD_REQUEST",
-                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "retryable": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`E_FORBIDDEN`: pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; lock_id o upload_id de otro usuario; o un nodo que usa la API interna con un node_id ajeno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "E_FORBIDDEN": {
+                    "value": {
+                      "error": "E_FORBIDDEN",
+                      "message": "pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; lock_id o upload_id de otro usuario; o un nodo que usa la API interna con un node_id ajeno",
                       "retryable": false
                     }
                   }
@@ -224,7 +281,7 @@
             }
           },
           "422": {
-            "description": "`E_REPLICAS`: no hay 2 copias confirmadas en zonas distintas.",
+            "description": "`E_REPLICAS`: faltan copias: no se alcanzó DFS_W al escribir, o no hay copias vivas en 2 zonas distintas.",
             "content": {
               "application/json": {
                 "schema": {
@@ -234,7 +291,7 @@
                   "E_REPLICAS": {
                     "value": {
                       "error": "E_REPLICAS",
-                      "message": "no hay 2 copias confirmadas en zonas distintas",
+                      "message": "faltan copias: no se alcanzó DFS_W al escribir, o no hay copias vivas en 2 zonas distintas",
                       "retryable": true
                     }
                   }
@@ -243,7 +300,7 @@
             }
           },
           "503": {
-            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes suficientes.",
+            "description": "`E_UNAVAILABLE`: etcd sin mayoría o sin DataNodes vivos suficientes.",
             "content": {
               "application/json": {
                 "schema": {
@@ -253,7 +310,7 @@
                   "E_UNAVAILABLE": {
                     "value": {
                       "error": "E_UNAVAILABLE",
-                      "message": "etcd sin mayoría o sin DataNodes suficientes",
+                      "message": "etcd sin mayoría o sin DataNodes vivos suficientes",
                       "retryable": true
                     }
                   }
@@ -525,7 +582,7 @@
             },
             "type": "array",
             "title": "Bad Blocks",
-            "description": "Copias dañadas que el DataNode encontró y borró; el MetaServer las quita de stored_on"
+            "description": "Copias que el DataNode encontró dañadas (y borró) o que debía tener y no encontró; el MetaServer quita este nodo de su stored_on"
           }
         },
         "type": "object",
@@ -652,10 +709,16 @@
             "type": "string",
             "title": "Node Id"
           },
+          "disk_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Disk Id",
+            "description": "Identificador del disco de datos: el DataNode lo crea la primera vez que arranca con DFS_DATA_DIR vacía y lo guarda en DFS_DATA_DIR/.disk_id (el punto evita chocar con la carpeta de un usuario). Si la carpeta tiene bloques pero no .disk_id, el DataNode no arranca. Si el valor cambia, el disco es nuevo y no tiene bloques"
+          },
           "ip": {
             "type": "string",
             "title": "Ip",
-            "description": "IP privada del DataNode"
+            "description": "IP privada del DataNode (DFS_NODE_IP)"
           },
           "public_port": {
             "type": "integer",
@@ -682,6 +745,7 @@
         "type": "object",
         "required": [
           "node_id",
+          "disk_id",
           "ip",
           "public_port",
           "internal_port",
@@ -691,6 +755,7 @@
         "title": "RegisterRequest",
         "examples": [
           {
+            "disk_id": "5f0c7e2a-9d41-4b8e-a3c6-1e2f3a4b5c6d",
             "free_bytes": 15032385536,
             "internal_port": 9444,
             "ip": "172.31.0.10",

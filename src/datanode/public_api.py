@@ -79,7 +79,8 @@ async def put_block(hash: HashPath, request: Request):
         "Descifra el bloque guardado y lo devuelve en binario, sin cifrar. Exige un pase de lectura. "
         "Si la copia está dañada (falla AES-GCM o el hash no coincide), responde 422 E_CHECKSUM, la "
         "borra y la reporta en bad_blocks de su siguiente latido; el cliente prueba la siguiente réplica. "
-        "DA-09, DA-10, DA-12."
+        "Si no tiene el bloque, 404 E_NOT_FOUND, y también lo reporta en bad_blocks: el MetaServer "
+        "creía que la copia estaba aquí. DA-09, DA-10, DA-12."
     ),
     dependencies=PASS,
     responses={

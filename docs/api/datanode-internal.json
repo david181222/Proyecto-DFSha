@@ -52,14 +52,14 @@
             }
           },
           "400": {
-            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
+            "description": "`E_BAD_REQUEST`: parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /.",
             "content": {
               "application/json": {
                 "examples": {
                   "E_BAD_REQUEST": {
                     "value": {
                       "error": "E_BAD_REQUEST",
-                      "message": "parámetros o ruta inválidos, escritura que deja un hueco, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
+                      "message": "parámetros o ruta inválidos, escritura que deja un hueco o trunca el archivo, rm o rmdir sobre el tipo equivocado, o borrar la raíz /",
                       "retryable": false
                     }
                   }

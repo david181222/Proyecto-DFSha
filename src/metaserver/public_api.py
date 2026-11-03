@@ -214,7 +214,9 @@ def rmdir(path: RemovablePathQuery):
     description=(
         "Toma internamente el lock del archivo con espera 0 (423 E_LOCKED si está ocupado); el cliente no "
         "llama a /locks para borrar. La versión actual pasa a retenida (replaced_at) y la limpieza la quita "
-        "cuando vence DFS_RETENTION_S (DA-02, DA-14). 400 E_BAD_REQUEST si la ruta es un directorio, "
+        "cuando vence DFS_RETENTION_S (DA-02, DA-14); un lector que ya la tenía abierta termina con los "
+        "pases que tiene, pero no puede renovarlos porque la ruta ya no existe. "
+        "400 E_BAD_REQUEST si la ruta es un directorio, "
         "incluida la raíz /. RF1."
     ),
     dependencies=JWT,
@@ -242,7 +244,8 @@ def rm(path: RemovablePathQuery):
         "Lock de etcd con su propio lease de DFS_LOCK_LEASE_S: los escritores esperan en fila, "
         "en orden de llegada, hasta wait_s segundos (de 0 a 60; 30 si no se indica). Si la espera "
         "se agota o era 0, responde 423 E_LOCKED y revoca el lease del intento. Si la ruta es un "
-        "directorio, 400 E_BAD_REQUEST. DA-08."
+        "directorio, 400 E_BAD_REQUEST. La ruta no tiene que existir todavía: con w se toma antes de "
+        "crear el archivo, y el directorio padre se comprueba en la reserva y en el commit. DA-08."
     ),
     dependencies=JWT,
     responses=error_responses(
@@ -302,11 +305,12 @@ def release_lock(lock_id: LockIdPath):
     tags=["files"],
     summary="Ubicar los bloques de un archivo",
     description=(
-        "Manifiesto de una versión (la actual si no se indica) con las réplicas de cada bloque "
-        "y un pase de lectura por bloque. Las réplicas de la zona de X-Client-Zone van primero. "
-        "Una versión reemplazada se puede leer durante DFS_RETENTION_S (DA-14). Si la ruta es un "
-        "directorio, 400 E_BAD_REQUEST. Para renovar pases vencidos, se vuelve a pedir con la misma "
-        "version. DA-05, DA-10, DA-11."
+        "Manifiesto de una versión (la actual si no se indica). Por bloque: stored_on, todos los DataNodes "
+        "con copia según etcd; replicas, los vivos, primero los de la zona de X-Client-Zone (vacía si "
+        "ninguno está vivo); y un pase de lectura. Una versión reemplazada se puede leer "
+        "durante DFS_RETENTION_S (DA-14); después, 404 E_NOT_FOUND y el cliente reabre el archivo. Si la "
+        "ruta es un directorio, 400 E_BAD_REQUEST. Para renovar pases vencidos, se vuelve a pedir con la "
+        "misma version. DA-05, DA-10, DA-11, DA-14."
     ),
     dependencies=JWT,
     responses=error_responses(
@@ -333,9 +337,11 @@ def file_blocks(
     tags=["uploads"],
     summary="Reservar una subida",
     description=(
-        "Recibe los bloques nuevos o cambiados y responde cuáles ya están guardados (present) y, "
-        "para los que faltan, el DataNode primario y un pase de escritura con los secundarios "
-        "(2, o 1 si solo quedan 2 DataNodes vivos). "
+        "Recibe los bloques nuevos o cambiados y responde cuáles ya están guardados con copias vivas "
+        "en 2 zonas (present) y, para los que faltan, el DataNode primario y un pase de escritura con "
+        "los secundarios (2, o 1 si solo quedan 2 DataNodes vivos). 503 E_UNAVAILABLE si no hay al "
+        "menos DFS_W DataNodes vivos que cubran 2 zonas; 507 E_NO_SPACE si los hay pero sin espacio. "
+        "400 E_BAD_REQUEST si blocks repite un índice o trae un bloque mayor que block_size. "
         "Exige el lock del archivo (modos w, a y rw): si el lock_id venció o es de otro archivo, "
         "409 E_LOCK_LOST. /uploads/{upload_id} queda atada al lease de ese lock y desaparece sola si "
         "vence. 400 E_BAD_REQUEST si la escritura deja un hueco, si la ruta es un directorio o si "
@@ -367,7 +373,9 @@ def create_upload(body: UploadRequest):
     description=(
         "Asigna un primario nuevo, sin los nodos de exclude_nodes, a los bloques que recibieron "
         "un error reintentable. El cliente reenvía el mismo bloque, con el mismo hash. Con los "
-        "mismos índices y exclude_nodes vacío sirve para renovar pases de escritura vencidos. DA-04, DA-10."
+        "mismos índices y exclude_nodes vacío sirve para renovar pases de escritura vencidos. Sin al "
+        "menos DFS_W DataNodes vivos que cubran 2 zonas (sin contar exclude_nodes), 503 E_UNAVAILABLE. "
+        "DA-04, DA-05, DA-10."
     ),
     dependencies=JWT,
     responses=error_responses(
@@ -391,9 +399,11 @@ def realloc_upload(upload_id: UploadIdPath, body: ReallocRequest):
     description=(
         "Transacción de etcd que publica la versión nueva solo si la versión base sigue siendo la "
         "actual (si no, 409 E_VERSION_CONFLICT) y la clave del lock sigue existiendo y es la de ese "
-        "archivo (si no, 409 E_LOCK_LOST). Si algún bloque no tiene 2 copias confirmadas en zonas distintas, "
+        "archivo (si no, 409 E_LOCK_LOST). Si algún bloque no tiene copias vivas en 2 zonas, "
         "422 E_REPLICAS: el cliente vuelve a llamar POST /uploads con la misma lista y envía los "
-        "bloques que falten. 404 E_NOT_FOUND si el directorio padre ya no existe o es un archivo. "
+        "bloques que falten. 400 E_BAD_REQUEST si hashes y size no forman un archivo sin huecos o si "
+        "a o rw lo truncan (docs/contratos.md, sección 2). 404 E_NOT_FOUND si el directorio padre "
+        "ya no existe o es un archivo. "
         "Con base_version 0 crea la entrada con una transacción que exige que la clave no exista y "
         "que el padre no haya cambiado (docs/contratos.md, sección 8). DA-02, DA-08, G1, G4."
     ),

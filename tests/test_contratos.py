@@ -23,6 +23,7 @@ from dfs_common import errors, models
 from dfs_common.config import Settings
 from dfs_common.errors import ERROR_TABLE, ErrorCode, ErrorResponse
 from dfs_common.models import DirEntry, HeartbeatRequest, LockRequest, MetaServerListResponse, check_dfs_path
+from dfs_common.security import sign_pass, verify_pass
 from metaserver.internal_api import app as metaserver_internal
 from metaserver.public_api import app as metaserver_public
 
@@ -321,6 +322,7 @@ def test_settings_defaults_are_the_normal_values(monkeypatch):
     )  # fmt: skip
     assert table_19 == (8, 2, 10, 30, 5, 15, 60, 300, 600, 600, 3600)
     assert (s.lock_renew_s, s.gc_clock_margin_s) == (10, 1)  # decisión 12
+    assert s.leader_scan_s == 10  # tarea 02d
     assert (s.jwt_ttl_s, s.pass_ttl_s) == (3600, 600)
     assert (s.meta_public_port, s.meta_internal_port, s.dn_public_port, s.dn_internal_port) == (8443, 8444, 9443, 9444)
     assert s.admin_password_file is None  # decisión 17
@@ -439,7 +441,8 @@ def test_invalid_paths_respond_400(path):
         assert "Value error" not in response.json()["message"]  # mensaje limpio, sin el prefijo de Pydantic
 
 
-# Solo tres casos: pase en el DataNode, /admin sin rol, y lock_id o upload_id de otro usuario.
+# Cuatro casos: pase en el DataNode, /admin sin rol, lock_id o upload_id de otro usuario,
+# y una llamada a la API interna del MetaServer desde una IP que no es la de su node_id.
 FORBIDDEN_ROUTES = {
     ("datanode-public", "PUT", "/api/v1/blocks/{hash}"),
     ("datanode-public", "GET", "/api/v1/blocks/{hash}"),
@@ -450,6 +453,9 @@ FORBIDDEN_ROUTES = {
     ("metaserver-public", "POST", "/api/v1/uploads"),
     ("metaserver-public", "POST", "/api/v1/uploads/{upload_id}/realloc"),
     ("metaserver-public", "POST", "/api/v1/uploads/{upload_id}/commit"),
+    ("metaserver-internal", "POST", "/api/v1/internal/register"),
+    ("metaserver-internal", "POST", "/api/v1/internal/heartbeat"),
+    ("metaserver-internal", "POST", "/api/v1/internal/blocks/confirm"),
 }
 
 
@@ -683,7 +689,7 @@ def test_example_passes_match_their_blocks_and_timeline():
 def test_confirm_can_answer_replicas_error():
     errors = documented_errors(metaserver_internal, "POST", "/api/v1/internal/blocks/confirm")
     assert "E_REPLICAS" in errors
-    row = "| POST | `/api/v1/internal/blocks/confirm` | 200 `OkResponse` | 400, 422 `E_REPLICAS`, 503 |"
+    row = "| POST | `/api/v1/internal/blocks/confirm` | 200 `OkResponse` | 400, 403, 422 `E_REPLICAS`, 503 |"
     assert row in CONTRATOS_MD
 
 
@@ -813,5 +819,134 @@ def test_node_ip_setting(monkeypatch):
 
 
 def test_contratos_md_has_no_open_points():
-    assert "## 10. Decisiones de la tarea 02c" in CONTRATOS_MD
+    assert "## 10. Decisiones de las tareas 02c y 02d" in CONTRATOS_MD
     assert "Pendientes" not in CONTRATOS_MD
+
+
+# =====================================================================
+# Tarea 02d: correcciones de la auditoría
+# =====================================================================
+
+
+# --- Quién valida la escritura: la reserva rechaza índices repetidos y bloques mayores que block_size ---
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        (lambda ex: {**ex, "blocks": [ex["blocks"][0], ex["blocks"][0]]}, "índices repetidos"),
+        (lambda ex: {**ex, "block_size": 4194304}, "mide más que block_size"),
+    ],
+    ids=["indices-repetidos", "bloque-mayor"],
+)
+def test_upload_rejects_repeated_indices_and_oversized_blocks(change, message):
+    body = change(first_example(models.UploadRequest))
+    with pytest.raises(ValidationError, match=message):
+        models.UploadRequest.model_validate(body)
+    response = TestClient(metaserver_public).post("/api/v1/uploads", json=body)
+    assert response.status_code == 400
+    assert response.json()["error"] == "E_BAD_REQUEST"
+    assert message in response.json()["message"]
+
+
+# --- Copias fantasma: disk_id en el registro y bloques que no están en bad_blocks ---
+
+
+def test_register_requires_disk_id():
+    example = first_example(models.RegisterRequest)
+    assert example["disk_id"]
+    without = {key: value for key, value in example.items() if key != "disk_id"}
+    with pytest.raises(ValidationError):
+        models.RegisterRequest.model_validate(without)
+    response = TestClient(metaserver_internal).post("/api/v1/internal/register", json=without)
+    assert response.status_code == 400
+
+
+def test_missing_copies_are_reported_like_damaged_ones():
+    assert "no encontró" in models.HeartbeatRequest.model_fields["bad_blocks"].description
+    get_block = operation(datanode_public, "GET", "/api/v1/blocks/{hash}")
+    assert "404 E_NOT_FOUND" in get_block["description"] and "bad_blocks" in get_block["description"]
+
+
+# --- Copias vivas y DataNodes suficientes ---
+
+
+def test_unavailable_covers_missing_datanodes():
+    assert "sin DataNodes vivos suficientes" in ERROR_TABLE[ErrorCode.E_UNAVAILABLE].description
+    for method, path in [
+        ("GET", "/api/v1/files/blocks"),
+        ("POST", "/api/v1/uploads"),
+        ("POST", "/api/v1/uploads/{upload_id}/realloc"),
+    ]:
+        assert "E_UNAVAILABLE" in documented_errors(metaserver_public, method, path)
+
+
+# --- Orden de comprobación del pase: vencimiento antes que hash y operación ---
+
+
+def test_expired_pass_for_another_block_is_auth_error():
+    key = b"k" * 32
+    expired = sign_pass(models.BlockPass(user="ana", hash=HASH, op="r", exp=1000), key)
+    with pytest.raises(errors.DFSError) as caught:
+        verify_pass(expired, key, hash="0" * 64, op="w", now=2000)
+    assert caught.value.code == ErrorCode.E_AUTH  # 401, no 403: el vencimiento se revisa primero
+
+
+# --- Arranque: cada servicio exige sus variables de identidad ---
+
+
+def test_settings_require_names_every_missing_variable(monkeypatch):
+    clear_dfs_env(monkeypatch)
+    settings = Settings(_env_file=None, node_id="dn1")
+    with pytest.raises(SystemExit, match="DFS_NODE_IP, DFS_META_SEEDS"):
+        settings.require("node_id", "node_ip", "meta_seeds")
+    settings.require("node_id")  # no falta nada: no hace nada
+
+
+@pytest.mark.parametrize(
+    ("module_name", "required"),
+    [
+        ("metaserver.__main__", "DFS_NODE_ID, DFS_NODE_IP, DFS_ETCD_ENDPOINTS"),
+        ("datanode.__main__", "DFS_NODE_ID, DFS_NODE_IP, DFS_ZONE, DFS_META_SEEDS"),
+    ],
+    ids=["metaserver", "datanode"],
+)
+def test_services_refuse_to_start_without_their_identity(module_name, required, monkeypatch, tmp_path):
+    clear_dfs_env(monkeypatch)
+    monkeypatch.chdir(tmp_path)  # sin .env: solo cuentan las variables de entorno
+    module = importlib.import_module(module_name)
+
+    def started_anyway(*args, **kwargs):
+        raise AssertionError("arrancó sin sus variables de identidad")
+
+    # Si faltara la comprobación, la prueba falla aquí en vez de abrir puertos y quedarse colgada.
+    monkeypatch.setattr(module, "run", started_anyway)
+    with pytest.raises(SystemExit, match=required):
+        module.main()
+
+
+# =====================================================================
+# Revisión de la segunda auditoría de la tarea 02d
+# =====================================================================
+
+
+def test_file_blocks_shows_where_each_block_is_even_without_live_replicas():
+    """DA-16: dfs stat --blocks muestra stored_on; replicas solo trae vivos y puede ir vacía."""
+    for block in first_example(models.FileBlocksResponse)["blocks"]:
+        assert {r["node_id"] for r in block["replicas"]} <= set(block["stored_on"])
+    block = first_example(models.FileBlocksResponse)["blocks"][0]
+    no_live_replicas = models.BlockLocation.model_validate({**block, "replicas": []})
+    assert no_live_replicas.stored_on == ["dn2", "dn3", "dn4"]
+
+
+def test_disk_id_file_cannot_clash_with_a_user_folder():
+    """El archivo del disk_id empieza con punto, que un nombre de usuario no puede tener."""
+    assert re.fullmatch(models.USER_PATTERN, "disk_id")  # "disk_id" sí sería un usuario válido
+    assert not re.fullmatch(models.USER_PATTERN, ".disk_id")
+    assert "DFS_DATA_DIR/.disk_id" in models.RegisterRequest.model_fields["disk_id"].description
+
+
+def test_replicas_error_talks_about_live_copies_and_dfs_w():
+    description = ERROR_TABLE[ErrorCode.E_REPLICAS].description
+    assert "vivas" in description and "DFS_W" in description
+    assert "confirmadas" not in description

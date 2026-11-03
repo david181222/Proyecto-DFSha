@@ -6,7 +6,7 @@ Equipo: Edwin Vélez, José Díaz y Santiago Martínez.
 
 ## Estado
 
-Tareas 01, 02, 02b y 02c: contratos de API. Con la tarea 02c, que cerró los hallazgos de la auditoría, `docs/contratos.md` no tiene pendientes. Las cuatro APIs existen como *stubs* que responden 501, salvo `GET /api/v1/health`; la validación de parámetros sí funciona (por ejemplo, una ruta de archivo inválida responde 400). Todavía no hay lógica (etcd, cifrado, réplicas ni almacenamiento).
+Tareas 01 a 02d: contratos de API, sin pendientes (`docs/contratos.md`). Tareas 03 a 05: seguridad común (JWT y pases de bloque), generación de la CA, los certificados y los secretos (`scripts/gen_secrets.py`), y el sistema completo en un PC con TLS 1.3 y mTLS (`compose.local.yml`, ver "Correr en local"). Las cuatro APIs existen como *stubs* que responden 501, salvo `GET /api/v1/health`; la validación de parámetros sí funciona (por ejemplo, una ruta de archivo inválida responde 400). Todavía no hay lógica (etcd, cifrado, réplicas ni almacenamiento).
 
 | Documento | Contenido |
 |---|---|

@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     lock_renew_s: int = Field(10, ge=1, description="Cada cuánto renueva el cliente su lock (DA-08)")
     gc_clock_margin_s: int = Field(1, ge=0, description="Margen por diferencia de relojes en la limpieza (DA-02)")
 
+    # --- Tiempo agregado en la tarea 02d (mismo valor normal y de prueba) ---
+    leader_scan_s: int = Field(
+        10, ge=1, description="Cada cuánto revisa el líder nodos caídos, copias faltantes y órdenes atascadas (DA-12)"
+    )
+
     # --- Vencimiento de tokens (DA-10) ---
     jwt_ttl_s: int = Field(3600, ge=1, description="Duración del JWT del login")
     pass_ttl_s: int = Field(600, ge=1, description="Duración de un pase de bloque")
@@ -94,3 +99,14 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [seed.strip() for seed in value.split(",") if seed.strip()]
         return value
+
+    def require(self, *fields: str) -> None:
+        """Detiene el arranque si falta alguna de estas variables.
+
+        Las de identidad y descubrimiento (node_id, node_ip, zone, meta_seeds, etcd_endpoints)
+        no tienen un valor por defecto útil: las escribe el despliegue. Sin esta comprobación,
+        un MetaServer sin DFS_NODE_ID arrancaría y se registraría con un nombre vacío.
+        """
+        missing = [f"DFS_{field.upper()}" for field in fields if getattr(self, field) in ("", None, [])]
+        if missing:
+            raise SystemExit(f"faltan variables de entorno: {', '.join(missing)}")
