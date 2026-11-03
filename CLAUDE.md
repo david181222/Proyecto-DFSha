@@ -20,7 +20,7 @@ Las propuestas individuales de la fase I no están en el repositorio: lo que se 
 - httpx para llamadas HTTP, incluida la pasarela HTTP/JSON de etcd v3 (`/v3/kv`, `/v3/lease`, `/v3/lock`, `/v3/election`). No usar clientes de etcd para Python.
 - cryptography (AES-256-GCM), hashlib y hmac (SHA-256, HMAC), argon2-cffi, PyJWT y typer (CLI `dfs`).
 - pytest para las pruebas.
-- Docker Compose con `network_mode: host`. Scripts de infraestructura en bash con la AWS CLI; en Windows se corren desde WSL o Git Bash.
+- Docker Compose: en AWS, cada VM con `network_mode: host`; en local (`compose.local.yml`), una red *bridge* `dfs` (`10.88.0.0/24`) con una IP fija por contenedor y los mismos puertos que en AWS. Scripts de infraestructura en bash con la AWS CLI; en Windows se corren desde WSL o Git Bash.
 - No agregues dependencias fuera de esta lista sin anotarlo y justificarlo.
 
 ## Estructura del repositorio

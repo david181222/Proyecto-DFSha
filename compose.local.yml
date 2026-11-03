@@ -1,0 +1,307 @@
+# DFSha · sistema completo en un solo PC (tarea 05)
+#
+# 3 etcd, 3 MetaServers, 4 DataNodes y 1 cliente, con TLS 1.3 y mTLS reales y los
+# mismos puertos que en AWS. En AWS cada VM usa la red del host (DA-13); aquí,
+# como todos comparten el PC, cada contenedor tiene su IP fija en la red dfs.
+#
+#   python scripts/gen_secrets.py --out secrets/local --nodes ...   (ver README, "Correr en local")
+#   docker compose -f compose.local.yml up -d --build
+#
+# Tiempos (DA-16): vacíos toman el valor por defecto de src/dfs_common/config.py.
+# Para los valores cortos de prueba, crea un .env en la raíz (git lo ignora) con la
+# columna "Pruebas" de .env.example, por ejemplo DFS_RETENTION_S=60.
+
+x-dfs-times: &dfs-times
+  DFS_BLOCK_MIB: ${DFS_BLOCK_MIB:-}
+  DFS_W: ${DFS_W:-}
+  DFS_PRIMARY_WAIT_S: ${DFS_PRIMARY_WAIT_S:-}
+  DFS_LOCK_LEASE_S: ${DFS_LOCK_LEASE_S:-}
+  DFS_HEARTBEAT_S: ${DFS_HEARTBEAT_S:-}
+  DFS_NODE_LEASE_S: ${DFS_NODE_LEASE_S:-}
+  DFS_REREPLICATE_AFTER_S: ${DFS_REREPLICATE_AFTER_S:-}
+  DFS_LEADER_GRACE_S: ${DFS_LEADER_GRACE_S:-}
+  DFS_RETENTION_S: ${DFS_RETENTION_S:-}
+  DFS_GC_INTERVAL_S: ${DFS_GC_INTERVAL_S:-}
+  DFS_GC_MIN_AGE_S: ${DFS_GC_MIN_AGE_S:-}
+  DFS_LOCK_RENEW_S: ${DFS_LOCK_RENEW_S:-}
+  DFS_GC_CLOCK_MARGIN_S: ${DFS_GC_CLOCK_MARGIN_S:-}
+  DFS_JWT_TTL_S: ${DFS_JWT_TTL_S:-}
+  DFS_PASS_TTL_S: ${DFS_PASS_TTL_S:-}
+
+x-seeds: &seeds
+  DFS_META_SEEDS: 10.88.0.21,10.88.0.22,10.88.0.23
+
+# --- etcd (DA-01, DA-13) ---
+# Cada variable ETCD_X equivale al flag --x de etcd: ETCD_CLIENT_CERT_AUTH es --client-cert-auth.
+x-etcd: &etcd
+  image: quay.io/coreos/etcd:v3.5.35
+  restart: unless-stopped
+  healthcheck:
+    # Forma exec: la imagen no trae shell. etcdctl toma los ETCDCTL_* de abajo.
+    test: ["CMD", "/usr/local/bin/etcdctl", "endpoint", "health"]
+    interval: 10s
+    timeout: 5s
+    retries: 3
+
+x-etcd-env: &etcd-env
+  ETCD_DATA_DIR: /etcd-data
+  ETCD_LISTEN_CLIENT_URLS: https://0.0.0.0:2379
+  ETCD_LISTEN_PEER_URLS: https://0.0.0.0:2380
+  ETCD_INITIAL_CLUSTER: etcd1=https://10.88.0.11:2380,etcd2=https://10.88.0.12:2380,etcd3=https://10.88.0.13:2380
+  ETCD_INITIAL_CLUSTER_STATE: new
+  ETCD_INITIAL_CLUSTER_TOKEN: dfsha-local
+  # TLS hacia los clientes (los MetaServers): solo entra un certificado firmado por la CA propia.
+  ETCD_CERT_FILE: /run/secrets/tls.crt
+  ETCD_KEY_FILE: /run/secrets/tls.key
+  ETCD_TRUSTED_CA_FILE: /run/secrets/ca.crt
+  ETCD_CLIENT_CERT_AUTH: "true"
+  # TLS entre los 3 nodos de etcd, con el mismo certificado.
+  ETCD_PEER_CERT_FILE: /run/secrets/tls.crt
+  ETCD_PEER_KEY_FILE: /run/secrets/tls.key
+  ETCD_PEER_TRUSTED_CA_FILE: /run/secrets/ca.crt
+  ETCD_PEER_CLIENT_CERT_AUTH: "true"
+  # DA-13: evita elecciones de líder por un disco lento.
+  ETCD_HEARTBEAT_INTERVAL: "250"
+  ETCD_ELECTION_TIMEOUT: "2500"
+  # Para etcdctl dentro del contenedor (healthcheck y docker compose exec).
+  ETCDCTL_API: "3"
+  ETCDCTL_ENDPOINTS: https://127.0.0.1:2379
+  ETCDCTL_CACERT: /run/secrets/ca.crt
+  ETCDCTL_CERT: /run/secrets/tls.crt
+  ETCDCTL_KEY: /run/secrets/tls.key
+
+# --- MetaServer y DataNode: una sola imagen (Dockerfile) ---
+x-dfs: &dfs
+  build: .
+  image: dfsha:local
+  restart: unless-stopped
+
+x-meta-env: &meta-env
+  <<: [*dfs-times, *seeds]
+  DFS_ETCD_ENDPOINTS: https://10.88.0.11:2379,https://10.88.0.12:2379,https://10.88.0.13:2379
+  DFS_ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+
+x-dn-env: &dn-env
+  <<: [*dfs-times, *seeds]
+
+services:
+  etcd1:
+    <<: *etcd
+    networks: {dfs: {ipv4_address: 10.88.0.11}}
+    environment:
+      <<: *etcd-env
+      ETCD_NAME: etcd1
+      ETCD_ADVERTISE_CLIENT_URLS: https://10.88.0.11:2379
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: https://10.88.0.11:2380
+    volumes: [etcd1-data:/etcd-data]
+    secrets:
+      - {source: ca_crt, target: ca.crt}
+      - {source: etcd1_tls_crt, target: tls.crt}
+      - {source: etcd1_tls_key, target: tls.key}
+
+  etcd2:
+    <<: *etcd
+    networks: {dfs: {ipv4_address: 10.88.0.12}}
+    environment:
+      <<: *etcd-env
+      ETCD_NAME: etcd2
+      ETCD_ADVERTISE_CLIENT_URLS: https://10.88.0.12:2379
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: https://10.88.0.12:2380
+    volumes: [etcd2-data:/etcd-data]
+    secrets:
+      - {source: ca_crt, target: ca.crt}
+      - {source: etcd2_tls_crt, target: tls.crt}
+      - {source: etcd2_tls_key, target: tls.key}
+
+  etcd3:
+    <<: *etcd
+    networks: {dfs: {ipv4_address: 10.88.0.13}}
+    environment:
+      <<: *etcd-env
+      ETCD_NAME: etcd3
+      ETCD_ADVERTISE_CLIENT_URLS: https://10.88.0.13:2379
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: https://10.88.0.13:2380
+    volumes: [etcd3-data:/etcd-data]
+    secrets:
+      - {source: ca_crt, target: ca.crt}
+      - {source: etcd3_tls_crt, target: tls.crt}
+      - {source: etcd3_tls_key, target: tls.key}
+
+  # MetaServer: CA, su certificado, jwt_secret, pass_key y admin_password.
+  meta1:
+    <<: *dfs
+    command: ["python", "-m", "metaserver"]
+    networks: {dfs: {ipv4_address: 10.88.0.21}}
+    environment:
+      <<: *meta-env
+      DFS_NODE_ID: meta1
+      DFS_NODE_IP: 10.88.0.21
+      DFS_ZONE: us-east-1a
+    secrets:
+      - {source: ca_crt, target: ca.crt}
+      - {source: meta1_tls_crt, target: tls.crt}
+      - {source: meta1_tls_key, target: tls.key}
+      - {source: jwt_secret, target: jwt_secret}
+      - {source: pass_key, target: pass_key}
+      - {source: admin_password, target: admin_password}
+
+  meta2:
+    <<: *dfs
+    command: ["python", "-m", "metaserver"]
+    networks: {dfs: {ipv4_address: 10.88.0.22}}
+    environment:
+      <<: *meta-env
+      DFS_NODE_ID: meta2
+      DFS_NODE_IP: 10.88.0.22
+      DFS_ZONE: us-east-1b
+    secrets:
+      - {source: ca_crt, target: ca.crt}
+      - {source: meta2_tls_crt, target: tls.crt}
+      - {source: meta2_tls_key, target: tls.key}
+      - {source: jwt_secret, target: jwt_secret}
+      - {source: pass_key, target: pass_key}
+      - {source: admin_password, target: admin_password}
+
+  meta3:
+    <<: *dfs
+    command: ["python", "-m", "metaserver"]
+    networks: {dfs: {ipv4_address: 10.88.0.23}}
+    environment:
+      <<: *meta-env
+      DFS_NODE_ID: meta3
+      DFS_NODE_IP: 10.88.0.23
+      DFS_ZONE: us-east-1c
+    secrets:
+      - {source: ca_crt, target: ca.crt}
+      - {source: meta3_tls_crt, target: tls.crt}
+      - {source: meta3_tls_key, target: tls.key}
+      - {source: jwt_secret, target: jwt_secret}
+      - {source: pass_key, target: pass_key}
+      - {source: admin_password, target: admin_password}
+
+  # DataNode: CA, su certificado, pass_key y su node_key (DA-09). Bloques en /data.
+  dn1:
+    <<: *dfs
+    command: ["python", "-m", "datanode"]
+    networks: {dfs: {ipv4_address: 10.88.0.31}}
+    environment:
+      <<: *dn-env
+      DFS_NODE_ID: dn1
+      DFS_NODE_IP: 10.88.0.31
+      DFS_ZONE: us-east-1a
+    volumes: [dn1-data:/data]
+    secrets:
+      - {source: ca_crt, target: ca.crt}
+      - {source: dn1_tls_crt, target: tls.crt}
+      - {source: dn1_tls_key, target: tls.key}
+      - {source: pass_key, target: pass_key}
+      - {source: dn1_node_key, target: node_key}
+
+  dn2:
+    <<: *dfs
+    command: ["python", "-m", "datanode"]
+    networks: {dfs: {ipv4_address: 10.88.0.32}}
+    environment:
+      <<: *dn-env
+      DFS_NODE_ID: dn2
+      DFS_NODE_IP: 10.88.0.32
+      DFS_ZONE: us-east-1b
+    volumes: [dn2-data:/data]
+    secrets:
+      - {source: ca_crt, target: ca.crt}
+      - {source: dn2_tls_crt, target: tls.crt}
+      - {source: dn2_tls_key, target: tls.key}
+      - {source: pass_key, target: pass_key}
+      - {source: dn2_node_key, target: node_key}
+
+  dn3:
+    <<: *dfs
+    command: ["python", "-m", "datanode"]
+    networks: {dfs: {ipv4_address: 10.88.0.33}}
+    environment:
+      <<: *dn-env
+      DFS_NODE_ID: dn3
+      DFS_NODE_IP: 10.88.0.33
+      DFS_ZONE: us-east-1c
+    volumes: [dn3-data:/data]
+    secrets:
+      - {source: ca_crt, target: ca.crt}
+      - {source: dn3_tls_crt, target: tls.crt}
+      - {source: dn3_tls_key, target: tls.key}
+      - {source: pass_key, target: pass_key}
+      - {source: dn3_node_key, target: node_key}
+
+  dn4:
+    <<: *dfs
+    command: ["python", "-m", "datanode"]
+    networks: {dfs: {ipv4_address: 10.88.0.34}}
+    environment:
+      <<: *dn-env
+      DFS_NODE_ID: dn4
+      DFS_NODE_IP: 10.88.0.34
+      DFS_ZONE: us-east-1b
+    volumes: [dn4-data:/data]
+    secrets:
+      - {source: ca_crt, target: ca.crt}
+      - {source: dn4_tls_crt, target: tls.crt}
+      - {source: dn4_tls_key, target: tls.key}
+      - {source: pass_key, target: pass_key}
+      - {source: dn4_node_key, target: node_key}
+
+  # Cliente: solo la CA, para verificar a los servidores. Queda esperando comandos.
+  client:
+    <<: *dfs
+    command: ["sleep", "infinity"]
+    networks: {dfs: {ipv4_address: 10.88.0.41}}
+    environment:
+      <<: *seeds
+      DFS_ZONE: us-east-1a
+    secrets:
+      - {source: ca_crt, target: ca.crt}
+
+networks:
+  dfs:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.88.0.0/24
+
+volumes:
+  etcd1-data:
+  etcd2-data:
+  etcd3-data:
+  dn1-data:
+  dn2-data:
+  dn3-data:
+  dn4-data:
+
+# Archivos que genera scripts/gen_secrets.py; cada contenedor los ve en /run/secrets/<target>.
+secrets:
+  ca_crt: {file: secrets/local/ca.crt}
+  jwt_secret: {file: secrets/local/jwt_secret}
+  pass_key: {file: secrets/local/pass_key}
+  admin_password: {file: secrets/local/admin_password}
+  etcd1_tls_crt: {file: secrets/local/etcd1/tls.crt}
+  etcd1_tls_key: {file: secrets/local/etcd1/tls.key}
+  etcd2_tls_crt: {file: secrets/local/etcd2/tls.crt}
+  etcd2_tls_key: {file: secrets/local/etcd2/tls.key}
+  etcd3_tls_crt: {file: secrets/local/etcd3/tls.crt}
+  etcd3_tls_key: {file: secrets/local/etcd3/tls.key}
+  meta1_tls_crt: {file: secrets/local/meta1/tls.crt}
+  meta1_tls_key: {file: secrets/local/meta1/tls.key}
+  meta2_tls_crt: {file: secrets/local/meta2/tls.crt}
+  meta2_tls_key: {file: secrets/local/meta2/tls.key}
+  meta3_tls_crt: {file: secrets/local/meta3/tls.crt}
+  meta3_tls_key: {file: secrets/local/meta3/tls.key}
+  dn1_tls_crt: {file: secrets/local/dn1/tls.crt}
+  dn1_tls_key: {file: secrets/local/dn1/tls.key}
+  dn2_tls_crt: {file: secrets/local/dn2/tls.crt}
+  dn2_tls_key: {file: secrets/local/dn2/tls.key}
+  dn3_tls_crt: {file: secrets/local/dn3/tls.crt}
+  dn3_tls_key: {file: secrets/local/dn3/tls.key}
+  dn4_tls_crt: {file: secrets/local/dn4/tls.crt}
+  dn4_tls_key: {file: secrets/local/dn4/tls.key}
+  dn1_node_key: {file: secrets/local/dn1/node_key}
+  dn2_node_key: {file: secrets/local/dn2/node_key}
+  dn3_node_key: {file: secrets/local/dn3/node_key}
+  dn4_node_key: {file: secrets/local/dn4/node_key}
