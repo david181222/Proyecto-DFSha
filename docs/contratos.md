@@ -1,13 +1,14 @@
 # Contratos de DFSha
 
-Versión legible del contrato entre el cliente, el MetaServer y el DataNode (tareas 01 a 02d). El código manda y este documento lo resume:
+Versión legible del contrato entre el cliente, el MetaServer y el DataNode (tareas 01 a 02d; la sección 11 agrega cómo se comportan las rutas implementadas en las tareas 06 a 08). El código manda y este documento lo resume:
 
 | Qué | Dónde |
 |---|---|
 | Mensajes (modelos Pydantic con su ejemplo) y reglas de las rutas de archivo | `src/dfs_common/models.py` |
 | Códigos de error y formato `{error, message, retryable}` | `src/dfs_common/errors.py` |
 | Variables de entorno (DA-16) | `src/dfs_common/config.py` y `.env.example` |
-| Rutas (stubs FastAPI) | `src/metaserver/public_api.py`, `src/metaserver/internal_api.py`, `src/datanode/public_api.py`, `src/datanode/internal_api.py` |
+| Rutas (FastAPI; las que no están implementadas son stubs) | `src/metaserver/public_api.py`, `src/metaserver/internal_api.py`, `src/datanode/public_api.py`, `src/datanode/internal_api.py` |
+| Claves de etcd que ya usa el código (sección 8) | `src/metaserver/keys.py` |
 | OpenAPI exportado | `docs/api/*.json` (`python scripts/export_openapi.py`) |
 
 `tests/test_contratos.py` comprueba que las rutas sean exactamente las de este documento, que cada ejemplo de aquí sea el mismo del modelo y valide contra él, que las tablas de errores y de variables coincidan con el código y con `.env.example`, y que `docs/api/` esté al día. Si cambias un contrato, en el mismo cambio actualiza el modelo o la ruta, este documento y el OpenAPI.
@@ -30,7 +31,8 @@ Versión legible del contrato entre el cliente, el MetaServer y el DataNode (tar
 - **Versiones:** empiezan en 1 y suben de a una con cada commit. `base_version: 0` significa que el archivo todavía no existe.
 - **Instantes:** enteros en milisegundos desde epoch (UTC), en la API y en etcd: `modified_at`, `created_at`, `replaced_at`, `touched_at` y `written_before_ms`. El cliente los formatea al mostrarlos. La excepción es `exp`, que va en segundos tanto en el JWT (lo exige su estándar, que también pone `iat` en segundos) como en el pase.
 - **Errores:** siempre `{error, message, retryable}` (sección 6).
-- **Stubs:** mientras una ruta no esté implementada responde 501 `E_NOT_IMPLEMENTED`. Solo `GET /api/v1/health` funciona desde ya. La validación de parámetros sí funciona: una petición inválida recibe 400 antes de llegar al stub.
+- **Stubs:** mientras una ruta no esté implementada responde 501 `E_NOT_IMPLEMENTED`. Ya funcionan `GET /api/v1/health` de las dos APIs públicas, y en el MetaServer público `POST /auth/login`, `POST /admin/users` y las cinco rutas `/fs` (tareas 07 y 08). La validación de parámetros funciona en todas las rutas: una petición inválida recibe 400 antes de llegar al stub.
+- **Orden de las comprobaciones:** en las rutas con JWT, primero se comprueba el token y después los parámetros. Una petición sin token, o con un token inválido, responde 401 `E_AUTH` aunque además traiga una ruta inválida; con un token válido, la ruta inválida responde 400. Así, quien no se autenticó no puede usar la API para averiguar qué rutas son válidas.
 
 Todos los ejemplos cuentan la misma historia: la usuaria `ana` reemplaza `/docs/informe.pdf` (versión 3 → 4; 20 MiB en tres bloques: 8 MiB, 8 MiB y 4 MiB) en el despliegue de DA-13. Las IP son de ejemplo; las reales las escribe el script de despliegue. El instante `1793628090000` es el 2 de noviembre de 2026 a las 14:01:30 UTC.
 
@@ -83,7 +85,7 @@ Autenticación con `Authorization: Bearer <JWT>` (sección 7.1), salvo donde dic
 
 ### POST /api/v1/auth/login
 
-Verifica la contraseña (Argon2id) y entrega un JWT que dura `DFS_JWT_TTL_S`. Usuario o contraseña incorrectos: 401 `E_AUTH`.
+Verifica la contraseña (Argon2id) y entrega un JWT que dura `DFS_JWT_TTL_S`. Usuario o contraseña incorrectos: 401 `E_AUTH`, con el mismo cuerpo en los dos casos, para no revelar si el usuario existe.
 
 ```http
 POST /api/v1/auth/login
@@ -238,7 +240,7 @@ Respuesta 200:
 
 ### POST /api/v1/fs/mkdir
 
-Crea un directorio y guarda `{type: "dir", created_at}` en `/ns/{user}{path}`, con la transacción de creación de la sección 8. No crea los padres: si el padre no existe o es un archivo, 404 `E_NOT_FOUND`. Si la ruta ya existe, incluida la raíz, 409 `E_EXISTS`.
+Crea un directorio y guarda `{type: "dir", created_at}` en `/ns/{user}{path}`, con la transacción de creación de la sección 8. No crea los padres: si el padre no existe o es un archivo, 404 `E_NOT_FOUND`. Si la ruta ya existe, incluida la raíz, 409 `E_EXISTS`. Qué responde si otro cliente cambia algo a la vez: sección 11, punto 5.
 
 ```http
 POST /api/v1/fs/mkdir
@@ -262,7 +264,7 @@ Respuesta 200:
 
 ### DELETE /api/v1/fs/rmdir
 
-Borra un directorio vacío, con la transacción de borrado de la sección 8. Si tiene entradas, 409 `E_NOT_EMPTY`; si la ruta es un archivo o la raíz `/` (que existe siempre), 400 `E_BAD_REQUEST`.
+Borra un directorio vacío, con la transacción de borrado de la sección 8. Si tiene entradas, 409 `E_NOT_EMPTY`; si la ruta es un archivo o la raíz `/` (que existe siempre), 400 `E_BAD_REQUEST`. Qué responde si otro cliente cambia algo a la vez: sección 11, punto 5.
 
 ```http
 DELETE /api/v1/fs/rmdir?path=/docs/fotos
@@ -279,7 +281,7 @@ Respuesta 200:
 
 ### DELETE /api/v1/fs/rm
 
-Borra un archivo. El MetaServer toma internamente el lock del archivo con espera 0: si otro cliente lo tiene, 423 `E_LOCKED`. El cliente no llama a `/locks` para borrar. La versión actual pasa a retenida (`replaced_at`) y la limpieza la quita cuando vence `DFS_RETENTION_S` (DA-02, DA-14). Un lector que ya la tenía abierta termina con los pases que tiene, pero no puede renovarlos: la ruta ya no existe y `GET /files/blocks` responde 404. Mientras dure la retención, la limpieza no borra sus bloques, porque el manifiesto guarda el usuario (sección 8). Si la ruta es un directorio, incluida la raíz `/`, 400 `E_BAD_REQUEST`.
+Borra un archivo. El MetaServer toma internamente el lock del archivo con espera 0: si otro cliente lo tiene, 423 `E_LOCKED`. El cliente no llama a `/locks` para borrar. La versión actual pasa a retenida (`replaced_at`) y la limpieza la quita cuando vence `DFS_RETENTION_S` (DA-02, DA-14). Un lector que ya la tenía abierta termina con los pases que tiene, pero no puede renovarlos: la ruta ya no existe y `GET /files/blocks` responde 404. Mientras dure la retención, la limpieza no borra sus bloques, porque el manifiesto guarda el usuario (sección 8). Si la ruta es un directorio, incluida la raíz `/`, 400 `E_BAD_REQUEST`. Si al terminar no se puede soltar el lock, la respuesta no cambia (sección 11, punto 6).
 
 ```http
 DELETE /api/v1/fs/rm?path=/docs/borrador.txt
@@ -322,7 +324,7 @@ Respuesta 200:
 
 ### PUT /api/v1/locks/{lock_id}
 
-Renueva el lease del lock; el cliente lo hace cada `DFS_LOCK_RENEW_S` (DA-08). Si el lock ya venció, 409 `E_LOCK_LOST`: igual que en el commit, quiere decir "perdiste el lock, empieza de nuevo". Un `lock_id` de otro usuario: 403 `E_FORBIDDEN`.
+Renueva el lease del lock; el cliente lo hace cada `DFS_LOCK_RENEW_S` (DA-08). Si el lock ya venció, 409 `E_LOCK_LOST`: igual que en el commit, quiere decir "perdiste el lock, empieza de nuevo". Un `lock_id` de otro usuario: 403 `E_FORBIDDEN`. Un `lock_id` mal formado se trata como uno que ya no existe (sección 11, punto 3).
 
 ```http
 PUT /api/v1/locks/694d8a1c2e3b4f05
@@ -340,7 +342,7 @@ Respuesta 200:
 
 ### DELETE /api/v1/locks/{lock_id}
 
-Libera el lock revocando su lease; entra el siguiente de la fila. Es idempotente: si el lock ya no existe, también responde 200 `{"ok": true}`. Un `lock_id` de otro usuario: 403 `E_FORBIDDEN`.
+Libera el lock revocando su lease; entra el siguiente de la fila. Es idempotente: si el lock ya no existe, también responde 200 `{"ok": true}`, y lo mismo con un `lock_id` mal formado (sección 11, punto 3). Un `lock_id` de otro usuario: 403 `E_FORBIDDEN`.
 
 ```http
 DELETE /api/v1/locks/694d8a1c2e3b4f05
@@ -639,7 +641,7 @@ Respuesta 200:
 }
 ```
 
-**Primer administrador.** Al arrancar, si no existe ningún administrador y `DFS_ADMIN_PASSWORD_FILE` apunta a un archivo, el MetaServer crea el usuario `admin` con esa contraseña. Lo hace con una transacción de etcd que solo escribe `/users/admin` si la clave no existe, para que tres MetaServers arrancando a la vez no choquen.
+**Primer administrador.** Al arrancar, si no existe ningún administrador y `DFS_ADMIN_PASSWORD_FILE` apunta a un archivo, el MetaServer crea el usuario `admin` con esa contraseña. Lo hace con una transacción de etcd que solo escribe `/users/admin` si la clave no existe, para que tres MetaServers arrancando a la vez no choquen. Si `admin` ya existe, no se cambia su contraseña (sección 11, punto 7).
 
 ### GET /api/v1/admin/status
 
@@ -1002,6 +1004,7 @@ Toda respuesta de error tiene la forma `{error, message, retryable}`. En el cód
 - **403 `E_FORBIDDEN`** aparece solo en cuatro casos: un pase inválido en el DataNode; las rutas `/admin` sin rol de administrador; un `lock_id` o `upload_id` que pertenece a otro usuario; y una llamada a la API interna del MetaServer desde una IP que no es la de su `node_id` (sección 3). En `/fs`, `/locks` (al pedirlo por ruta), `/files` y `/uploads` no existe "ruta de otro usuario".
 - **409 `E_LOCK_LOST`** siempre quiere decir "perdiste el lock, empieza de nuevo": al renovarlo, en la reserva o en el commit, sea porque venció o porque el `lock_id` es del mismo usuario pero de otro archivo.
 - **`retryable: true`** quiere decir que el cliente puede reintentar: con `realloc` si `PUT /blocks` da `E_CHECKSUM` o `E_REPLICAS`; con la siguiente réplica si `GET /blocks` da `E_CHECKSUM` (con un 404 también se pasa a la siguiente réplica, aunque 404 no sea reintentable: la copia falta solo en ese DataNode); repitiendo `POST /uploads` si el commit da `E_REPLICAS`; más tarde si es `E_LOCKED` o `E_UNAVAILABLE`.
+- **503 `E_UNAVAILABLE` en una operación que escribe** (`mkdir`, `rmdir`, `rm`, `POST /admin/users`, el commit) puede querer decir que etcd sí la aplicó y la respuesta se perdió (sección 11). Al reintentar, una respuesta como 409 `E_EXISTS` en `mkdir` o 404 en `rm` puede ser el resultado del primer intento: el cliente lo confirma con `stat` o `ls`.
 
 Errores que genera el propio framework, convertidos al mismo formato:
 
@@ -1127,7 +1130,7 @@ Solo los MetaServers hablan con etcd, por la pasarela HTTP/JSON (`/v3/kv`, `/v3/
 | `/nodes/disk/{node_id}` | `{disk_id}` | sin lease: sobrevive a la caída del nodo; `POST /internal/register` la compara (sección 3) |
 | `/orders/{node_id}/{order_id}` | la orden (sección 7.3) | se borra cuando llega en `done_orders` |
 | `/uploads/{upload_id}` | `{user, path, mode, base_version, block_size, lock_key, created_at}` | atada al lease del lock de la subida: desaparece sola si el lock vence |
-| `/locks/{user}{path}` | — | nombre del lock de etcd (DA-08); la clave de cada intento es `/locks/{user}{path}/{lock_id}`, con `lock_id` = ID del lease en hexadecimal; `rm` también lo toma |
+| `/locks/{user}{path}` | — | nombre del lock de etcd (DA-08); la clave de cada intento es `/locks/{user}{path}/{lock_id}`, con `lock_id` = ID del lease en hexadecimal; `rm` también lo toma. Los intentos sobre rutas que están debajo de `path` quedan en la misma fila (sección 11) |
 | `/election/leader` | — | prefijo que usa el servicio de elección de etcd (DA-12) |
 
 **Crear y borrar sin carreras.** Dos transacciones de etcd evitan que un `mkdir` dentro de un directorio y el `rmdir` de ese directorio se crucen: el que llega segundo ve el cambio y falla.
@@ -1220,3 +1223,32 @@ Los puntos 10 a 12, y los ajustes a los puntos 2, 4 y 9, salen de revisar una se
 10. **Identidad en la API interna del MetaServer:** la IP de origen debe ser la del `node_id`; si no, 403 (secciones 3 y 6).
 11. **Retención después de `rm`:** el manifiesto guarda `user` para que la limpieza proteja sus bloques; el lector termina con los pases que tiene (secciones 2 y 8).
 12. **Qué es `DFS_W`:** cuántas copias espera el primario; el commit exige siempre 2 en 2 zonas (sección 2).
+
+## 11. Decisiones de las tareas 06 a 08
+
+Las tareas 06 (cliente de etcd, `src/metaserver/etcd.py`), 07 (login, usuarios y primer administrador) y 08 (`ls`, `stat`, `mkdir`, `rmdir` y `rm`) no cambian rutas, mensajes ni errores. Precisan cómo se comportan:
+
+1. **401 antes que 400** en las rutas con JWT (sección 1, "Orden de las comprobaciones").
+2. **Reintentos contra etcd.** El MetaServer prueba los nodos de `DFS_ETCD_ENDPOINTS` en orden y empieza por el último que respondió. Pasa al siguiente:
+   - si la petición no llegó a enviarse;
+   - si etcd responde `Unavailable` o `DeadlineExceeded`.
+
+   Una **transacción** solo se reenvía si es seguro que etcd no la aplicó: no llegó a enviarse, o etcd respondió "no leader". Si se envió y no se sabe si se aplicó (se perdió la respuesta, "request timed out", "leader changed"), la ruta responde 503 `E_UNAVAILABLE` y no la repite: repetida, podría responder 409 o 423 a algo que sí se aplicó (sección 6). Las lecturas, y lo que repetido da lo mismo (`put`, borrar, leases), sí se reenvían. Si ningún nodo responde, 503.
+3. **`lock_id` mal formado.** Un `lock_id` que no tiene exactamente la forma que entrega `POST /locks` (hexadecimal en minúsculas, sin ceros a la izquierda, entre 1 y 16 cifras) no nombra ningún lock: se trata como un lock que ya no existe. `PUT /locks/{lock_id}` responde 409 `E_LOCK_LOST`, `DELETE /locks/{lock_id}` responde 200, y en la reserva y el commit responde 409 `E_LOCK_LOST`. Por eso esas rutas no tienen 400.
+4. **Locks de rutas anidadas.** Como la clave de cada intento es `/locks/{user}{path}/{lock_id}` (sección 8), los intentos sobre una ruta que está debajo de `path` (por ejemplo, `/a/b` debajo de `/a`) quedan en la misma fila que el lock de `path`.
+   - Nunca hay dos dueños del mismo archivo, ni cruces entre usuarios.
+   - No pasa con directorios: `POST /locks` y `rm` sobre un directorio responden 400 antes de tomar el lock.
+   - Solo pasa cuando un mismo usuario trabaja con el archivo `/a` y a la vez intenta crear algo debajo de él. Eso nunca puede salir bien, porque debajo de un archivo no se puede publicar (404). El efecto es una espera o un 423 de más en esa operación.
+
+   Se acepta así y no se cambia el formato de la clave.
+5. **Respuesta de `mkdir` y `rmdir` cuando su transacción falla.** Se vuelve a leer una vez la clave que la transacción comparaba por `mod_revision` (el padre en `mkdir`, el directorio en `rmdir`).
+   - Si sigue igual, falló la otra comparación: en `mkdir`, la ruta ya existía, así que 409 `E_EXISTS`; en `rmdir`, el directorio tenía entradas, así que 409 `E_NOT_EMPTY`. Vale aunque, al releer, la ruta ya no exista o las entradas ya no estén.
+   - Si cambió o ya no está, 404 `E_NOT_FOUND`.
+
+   En `mkdir` con la raíz como padre, la raíz no se compara, así que una transacción fallida es siempre 409.
+6. **`rm` y su lock.** El lease del lock de `rm` se revoca siempre al terminar. Si la revocación falla, `rm` responde lo mismo que habría respondido (200 si borró, 423 si no pudo) y el lease vence solo en `DFS_LOCK_LEASE_S`.
+7. **Primer administrador** (sección 2):
+   - lo crea un solo MetaServer, aunque arranquen los tres a la vez;
+   - si `admin` ya existe, no se cambia su contraseña aunque `DFS_ADMIN_PASSWORD_FILE` traiga otra: el MetaServer lo avisa en su log (pasa si se regeneran los secretos y etcd conserva sus datos);
+   - si el archivo de la contraseña está vacío, el MetaServer no arranca.
+8. **Arranque y etcd.** Si etcd no responde mientras se crea el primer administrador, el proceso termina y Docker lo reinicia (`restart: unless-stopped`); cuando etcd vuelve, arranca solo. Sin `DFS_ADMIN_PASSWORD_FILE`, el MetaServer arranca sin consultar etcd, y sus rutas responden 503 mientras etcd no esté disponible.
