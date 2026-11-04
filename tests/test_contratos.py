@@ -29,7 +29,7 @@ from metaserver.etcd import EtcdError, LeaseNotFound, ResponseLost
 from metaserver.internal_api import app as metaserver_internal
 from metaserver.public_api import app as metaserver_public
 
-from fakes import JWT_SECRET, PASS_KEY, FakeEtcd, bearer, public_client  # tests/fakes.py
+from fakes import JWT_SECRET, PASS_KEY, FakeEtcd, bearer, internal_client, public_client  # tests/fakes.py
 from metaserver import deps as metaserver_deps
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -191,9 +191,10 @@ def test_contratos_md_has_the_same_error_table():
 
 # Rutas que ya no son stubs, además de health. Sus pruebas están en tests/test_auth.py (tarea 07),
 # tests/test_fs.py (tarea 08), tests/test_datanode_internal.py (tarea 09), tests/test_datanode_public.py
-# (tarea 10), tests/test_locks.py (tarea 11), y tests/test_uploads.py, test_files.py y test_blocks.py
-# (tarea 12). PUT /blocks/{hash} sigue siendo stub, pero antes verifica el pase: su 501 se prueba con un
-# pase válido en tests/test_datanode_public.py.
+# (tarea 10), tests/test_locks.py (tarea 11), tests/test_uploads.py, test_files.py y test_blocks.py
+# (tarea 12), y tests/test_nodes.py, test_metaservers.py y test_status.py (tarea 13). PUT /blocks/{hash}
+# sigue siendo stub, pero antes verifica el pase: su 501 se prueba con un pase válido en
+# tests/test_datanode_public.py.
 IMPLEMENTED_ROUTES = {
     ("metaserver-public", "POST", "/api/v1/auth/login"),
     ("metaserver-public", "POST", "/api/v1/admin/users"),
@@ -210,6 +211,10 @@ IMPLEMENTED_ROUTES = {
     ("metaserver-public", "POST", "/api/v1/uploads/{upload_id}/realloc"),
     ("metaserver-public", "POST", "/api/v1/uploads/{upload_id}/commit"),
     ("metaserver-internal", "POST", "/api/v1/internal/blocks/confirm"),
+    ("metaserver-public", "GET", "/api/v1/cluster/metaservers"),
+    ("metaserver-public", "GET", "/api/v1/admin/status"),
+    ("metaserver-internal", "POST", "/api/v1/internal/register"),
+    ("metaserver-internal", "POST", "/api/v1/internal/heartbeat"),
     ("datanode-internal", "PUT", "/api/v1/internal/blocks/{user}/{hash}"),
     ("datanode-public", "GET", "/api/v1/blocks/{hash}"),
     ("datanode-public", "PUT", "/api/v1/blocks/{hash}"),
@@ -946,7 +951,8 @@ def test_register_requires_disk_id():
     without = {key: value for key, value in example.items() if key != "disk_id"}
     with pytest.raises(ValidationError):
         models.RegisterRequest.model_validate(without)
-    response = TestClient(metaserver_internal).post("/api/v1/internal/register", json=without)
+    with internal_client(ip=example["ip"]) as client:
+        response = client.post("/api/v1/internal/register", json=without)
     assert response.status_code == 400
 
 

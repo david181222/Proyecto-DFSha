@@ -17,8 +17,9 @@ Equipo: Edwin Vélez, José Díaz y Santiago Martínez.
 | 10 | Verificación de pases en el DataNode (`src/datanode/auth.py`) y `GET /blocks/{hash}`. `PUT /blocks/{hash}` ya verifica el pase y responde 501 hasta la tarea 14 |
 | 11 | Locks: `POST /locks` con espera en la fila de etcd y renovación del lease mientras espera, `PUT` y `DELETE /locks/{lock_id}` (`src/metaserver/locks.py`) |
 | 12 | Subidas: reserva con ubicación de réplicas en 2 zonas, `realloc`, commit con su transacción, `GET /files/blocks` y `POST /internal/blocks/confirm` (`uploads.py`, `placement.py`, `blocks.py` y `files.py`) |
+| 13 | Registro y latidos de los DataNodes (`datanodes.py`), autorregistro de los MetaServers y `GET /cluster/metaservers` (`metaservers.py`), y `GET /admin/status` (`status.py`) |
 
-Las demás rutas siguen siendo *stubs* que responden 501: lista de MetaServers, `/admin/status`, registro y latidos de la API interna del MetaServer, y el envío de un bloque al primario (`PUT /blocks/{hash}`). La validación de parámetros funciona en todas. Un DataNode ya guarda y entrega bloques cifrados, pero todavía no hay réplicas ni latidos. Las decisiones de comportamiento de las tareas 06 a 08 están en la sección 11 de `docs/contratos.md`, y las de las tareas 09 y 10, en la sección 12. Las de la tarea 11 no cambian el contrato y están en el docstring de `src/metaserver/locks.py`; los cambios y decisiones de la tarea 12, en la sección 13.
+Todas las rutas del MetaServer funcionan. Sigue siendo *stub* (responde 501) el envío de un bloque al primario (`PUT /blocks/{hash}`). La validación de parámetros funciona en todas. Un DataNode ya guarda y entrega bloques cifrados, pero todavía no reenvía réplicas ni late. Las decisiones de comportamiento de las tareas 06 a 08 están en la sección 11 de `docs/contratos.md`, y las de las tareas 09 y 10, en la sección 12. Las de la tarea 11 no cambian el contrato y están en el docstring de `src/metaserver/locks.py`; los cambios y decisiones de la tarea 12, en la sección 13; y las de la tarea 13, en los docstrings de `datanodes.py`, `metaservers.py` y `status.py`.
 
 Código del MetaServer:
 
@@ -34,7 +35,10 @@ Código del MetaServer:
 | `placement.py` | `choose_nodes`: a qué DataNodes va cada bloque (DA-05) |
 | `blocks.py` | Claves de bloque: confirmación, `update_stored_on` y copias vivas en 2 zonas |
 | `files.py` | `GET /files/blocks`: manifiesto, réplicas vivas y pases de lectura |
-| `nodes.py` | DataNodes vivos de `/nodes/dn/` |
+| `nodes.py` | DataNodes vivos de `/nodes/dn/` y comprobación de la IP de origen de la API interna |
+| `datanodes.py` | Registro y latidos de los DataNodes, con sus órdenes |
+| `metaservers.py` | Autorregistro de este MetaServer y lista de MetaServers vivos |
+| `status.py` | `GET /admin/status`: `build_admin_status` arma la respuesta |
 | `keys.py` | Formato de las claves de etcd (sección 8 del contrato) |
 
 Código del DataNode:
@@ -154,7 +158,7 @@ docker compose -f compose.local.yml exec client curl --tls-max 1.2 --cacert /run
 # API interna (mTLS): sin certificado de cliente, el servidor corta el handshake
 docker compose -f compose.local.yml exec client curl --cacert /run/secrets/ca.crt -X POST https://10.88.0.21:8444/api/v1/internal/register
 
-# Con el certificado de un DataNode, el handshake pasa y responde JSON (400 o 501)
+# Con el certificado de un DataNode, el handshake pasa y responde JSON (400: falta el cuerpo)
 docker compose -f compose.local.yml exec dn1 curl --cacert /run/secrets/ca.crt --cert /run/secrets/tls.crt --key /run/secrets/tls.key -X POST https://10.88.0.21:8444/api/v1/internal/register
 
 # etcd: 3 miembros y los 3 sanos (etcdctl ya trae los certificados en sus variables ETCDCTL_*)

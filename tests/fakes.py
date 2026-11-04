@@ -219,6 +219,11 @@ class FakeEtcd:
                 return None
             await asyncio.sleep(self.LOCK_POLL_S)
 
+    async def leader(self, name: str) -> KeyValue | None:
+        """Como /v3/election/leader: el candidato más antiguo bajo {name}/ (menor create_revision), o None."""
+        candidates = await self.get_prefix(f"{name}/")
+        return min(candidates, key=lambda kv: kv.create_revision, default=None)
+
 
 # --- API pública del MetaServer con FakeEtcd ---
 

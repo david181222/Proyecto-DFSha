@@ -75,3 +75,11 @@ async def test_lock_whose_lease_ends_while_waiting_raises_lease_not_found():
 
     with pytest.raises(LeaseNotFound):
         await asyncio.wait_for(waiting, 1)
+
+
+async def test_leader_is_the_oldest_candidate_or_none():
+    etcd = FakeEtcd()
+    assert await etcd.leader("/election/leader") is None
+    etcd.seed("/election/leader/7a00000000000002", b"meta2")
+    etcd.seed("/election/leader/694d8a1c2e3b4f01", b"meta1")  # va antes en orden de clave, pero llegó después
+    assert (await etcd.leader("/election/leader")).value == b"meta2"

@@ -156,6 +156,8 @@ def startup(monkeypatch, tmp_path):
     monkeypatch.setenv("DFS_JWT_SECRET_FILE", str(tmp_path / "jwt_secret"))
     (tmp_path / "pass_key").write_bytes(PASS_KEY)  # la reserva y la lectura firman pases (tarea 12)
     monkeypatch.setenv("DFS_PASS_KEY_FILE", str(tmp_path / "pass_key"))
+    monkeypatch.setenv("DFS_NODE_ID", "meta1")  # el MetaServer se registra en /nodes/meta/ (tarea 13)
+    monkeypatch.setenv("DFS_NODE_IP", "172.31.0.10")
     etcd = FakeEtcd()
     monkeypatch.setattr(deps, "connect_etcd", lambda settings: etcd)
     return etcd, tmp_path

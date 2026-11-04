@@ -7,6 +7,7 @@ la clave desaparece. Por eso "vivo" quiere decir "tiene clave en /nodes/dn/".
 
 from dataclasses import dataclass
 
+from dfs_common.errors import DFSError, ErrorCode
 from metaserver.etcd import Etcd
 from metaserver.keys import DATANODES_PREFIX
 
@@ -43,3 +44,13 @@ async def live_nodes(etcd: Etcd) -> list[Node]:
 
 def by_id(nodes: list[Node]) -> dict[str, Node]:
     return {node.node_id: node for node in nodes}
+
+
+def check_source_ip(source_ip: str, expected_ip: str | None, node_id: str) -> None:
+    """La API interna ata cada llamada a su nodo por la IP de origen (docs/contratos.md, sección 3).
+
+    Todos los nodos tienen un certificado de la misma CA, así que el certificado no dice cuál
+    es cuál. expected_ip None: el nodo no está vivo. Si no coincide: 403 E_FORBIDDEN.
+    """
+    if expected_ip is None or source_ip != expected_ip:
+        raise DFSError(ErrorCode.E_FORBIDDEN, f"la llamada no viene de la IP de {node_id or 'ningún nodo'}")

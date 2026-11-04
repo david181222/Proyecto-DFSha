@@ -9,14 +9,17 @@ aquí no existe "ruta de otro usuario". 403 E_FORBIDDEN solo aparece en /admin s
 rol de administrador y con un lock_id o upload_id de otro usuario.
 
 Implementadas: health, login y POST /admin/users (tarea 07); ls, stat, mkdir, rmdir
-y rm (tarea 08); pedir, renovar y liberar locks (tarea 11); y GET /files/blocks y las
-subidas (tarea 12). Las demás son stubs: tienen su firma, su modelo de respuesta y sus
-errores, pero responden 501 E_NOT_IMPLEMENTED.
+y rm (tarea 08); pedir, renovar y liberar locks (tarea 11); GET /files/blocks y las
+subidas (tarea 12); y la lista de MetaServers y /admin/status (tarea 13).
 
-Al arrancar, el lifespan conecta con etcd, lee la clave del JWT y crea el primer
-administrador (metaserver.deps y metaserver.auth). Se arranca con python -m metaserver.
+Al arrancar, el lifespan conecta con etcd, lee la clave del JWT y la de los pases, crea el
+primer administrador y registra este MetaServer en /nodes/meta/, con una tarea de fondo que
+lo renueva (metaserver.deps, metaserver.auth y metaserver.metaservers). Se arranca con
+python -m metaserver.
 """
 
+import asyncio
+import contextlib
 from contextlib import asynccontextmanager
 from typing import Annotated
 
@@ -49,14 +52,10 @@ from dfs_common.models import (
     check_dfs_path,
 )
 from dfs_common.security import create_jwt
-from metaserver import auth, files, fs, locks, uploads
-from metaserver.auth import CurrentUser, jwt_auth, require_admin
+from metaserver import auth, files, fs, locks, metaservers, status, uploads
+from metaserver.auth import CurrentUser, require_admin
 from metaserver.deps import EtcdDep, JwtSecretDep, PassKeyDep, SettingsDep, open_resources
 from metaserver.keys import user_key
-
-# Las rutas que todavía son stubs declaran el JWT así; las implementadas lo exigen con
-# require_user o require_admin, que dependen del mismo jwt_auth (el OpenAPI no cambia).
-JWT = [Depends(jwt_auth)]
 
 # Una ruta inválida responde 400 E_BAD_REQUEST (check_dfs_path).
 PathQuery = Annotated[
@@ -121,8 +120,8 @@ async def login(body: LoginRequest, etcd: EtcdDep, settings: SettingsDep, secret
     ),
     responses=error_responses(ErrorCode.E_UNAVAILABLE),
 )
-def list_metaservers():
-    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+async def list_metaservers(etcd: EtcdDep):
+    return await metaservers.list_metaservers(etcd)
 
 
 # --- Sistema de archivos (RF1) ---
@@ -480,11 +479,11 @@ async def create_user(body: CreateUserRequest, etcd: EtcdDep):
         "Líder, MetaServers, DataNodes con zona y estado, bloques con menos de 3 copias y órdenes "
         "pendientes. Requiere JWT con admin=true. DA-16."
     ),
-    dependencies=JWT,
+    dependencies=[Depends(require_admin)],
     responses=error_responses(ErrorCode.E_AUTH, ErrorCode.E_FORBIDDEN, ErrorCode.E_UNAVAILABLE),
 )
-def admin_status():
-    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+async def admin_status(etcd: EtcdDep):
+    return await status.admin_status(etcd)
 
 
 @router.get(
@@ -500,10 +499,22 @@ def health():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Al arrancar: recursos (configuración, etcd, clave del JWT) y primer administrador (sección 2)."""
+    """Al arrancar: recursos, primer administrador (sección 2) y registro de este MetaServer (DA-11).
+
+    Si etcd no responde, el arranque falla y Docker reinicia el contenedor. La renovación del
+    registro es la tarea de fondo del proceso: va aquí y no en la app interna, para correr una vez.
+    """
     async with open_resources(app):
-        await auth.create_first_admin(app.state.etcd, app.state.settings)
-        yield
+        etcd, settings = app.state.etcd, app.state.settings
+        await auth.create_first_admin(etcd, settings)
+        lease_id = await metaservers.register_self(etcd, settings)
+        renewer = asyncio.create_task(metaservers.keep_registered(etcd, settings, lease_id, settings.heartbeat_s))
+        try:
+            yield
+        finally:
+            renewer.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await renewer
 
 
 app = create_app(

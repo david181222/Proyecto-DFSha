@@ -1,4 +1,4 @@
-"""Rutas de las tareas 07, 08, 11 y 12 contra un etcd real, con el lifespan de verdad.
+"""Rutas de las tareas 07, 08 y 11 a 13 contra un etcd real, con el lifespan de verdad.
 
 Las pruebas de tests/test_auth.py, tests/test_fs.py, tests/test_locks.py y las de la tarea 12
 usan FakeEtcd. Estas confirman que con etcd pasa lo mismo: transacciones de creación y de
@@ -18,9 +18,10 @@ import anyio
 import pytest
 from fastapi.testclient import TestClient
 
+from dfs_common.config import Settings
 from dfs_common.errors import DFSError, ErrorCode
 from dfs_common.security import verify_jwt
-from metaserver import auth, deps, locks
+from metaserver import auth, deps, locks, metaservers
 from metaserver.etcd import Etcd, LeaseNotFound, lease_from_hex, lease_hex, op_delete, prefix_end
 from metaserver.internal_api import app as metaserver_internal
 from metaserver.public_api import app as metaserver_public
@@ -68,7 +69,12 @@ def environment(monkeypatch, tmp_path):
     monkeypatch.setenv("DFS_JWT_SECRET_FILE", str(tmp_path / "jwt_secret"))
     (tmp_path / "pass_key").write_bytes(PASS_KEY)
     monkeypatch.setenv("DFS_PASS_KEY_FILE", str(tmp_path / "pass_key"))
+    # El MetaServer se registra al arrancar (tarea 13): un meta_id propio por prueba.
+    meta_id = f"meta-{uuid.uuid4().hex[:8]}"
+    monkeypatch.setenv("DFS_NODE_ID", meta_id)
+    monkeypatch.setenv("DFS_NODE_IP", "10.88.0.21")
     monkeypatch.setattr(deps, "connect_etcd", lambda settings: Etcd([ENDPOINT]))
+    return meta_id
 
 
 @pytest.fixture
@@ -343,3 +349,113 @@ def test_a_commit_that_loses_its_parent_is_404(client, user, datanodes):
         assert response.status_code == 404 and response.json()["error"] == "E_NOT_FOUND"
     finally:
         client.delete(f"/api/v1/locks/{lock_id}", headers=headers)
+
+
+# --- Registro de nodos, latidos y /admin/status (tarea 13) ---
+
+
+def test_the_metaserver_registers_itself_and_appears_in_the_list(environment, client):
+    listed = client.get("/api/v1/cluster/metaservers").json()["metaservers"]
+    assert {"meta_id": environment, "ip": "10.88.0.21", "public_port": 8443, "internal_port": 8444} in listed
+    kv = with_etcd(lambda etcd: etcd.get(f"/nodes/meta/{environment}"))
+    assert kv.lease != 0  # atada a su lease: si el MetaServer cae, desaparece sola
+
+
+def test_keep_registered_registers_again_when_the_lease_is_lost():
+    meta_id = f"meta-{uuid.uuid4().hex[:8]}"
+    settings = Settings(_env_file=None, node_id=meta_id, node_ip="10.88.0.22")
+
+    async def scenario(etcd):
+        lease_id = await metaservers.register_self(etcd, settings)
+        renewer = asyncio.create_task(metaservers.keep_registered(etcd, settings, lease_id, 0.2))
+        try:
+            await etcd.lease_revoke(lease_id)  # como si hubiera vencido
+            await asyncio.sleep(1)
+            kv = await etcd.get(f"/nodes/meta/{meta_id}")
+        finally:
+            renewer.cancel()
+        assert kv is not None and kv.lease != lease_id
+        await etcd.lease_revoke(kv.lease)
+
+    with_etcd(scenario)
+
+
+def test_register_and_heartbeat(environment):
+    node_id = f"dn-{uuid.uuid4().hex[:8]}"
+    ip = "10.88.0.31"
+    body = {
+        "node_id": node_id,
+        "disk_id": "disco-1",
+        "ip": ip,
+        "public_port": 9443,
+        "internal_port": 9444,
+        "zone": "us-east-1a",
+        "free_bytes": 100,
+    }
+    user = f"t{uuid.uuid4().hex[:12]}"
+    hash = "6ce5a55b446b43e4e935c44695a9a09f161e8e87d1ff2359adebc5f9ee5ee5cf"
+    order = {
+        "order_id": "o1",
+        "type": "copy",
+        "user": user,
+        "hash": hash,
+        "target": {"node_id": "dn-destino", "address": "10.88.0.32:9444"},
+    }
+
+    async def prepare(etcd):
+        await etcd.put(f"/blocks/{user}/{hash}", {"size": 1, "stored_on": [node_id], "touched_at": 1})
+        await etcd.put(f"/orders/{node_id}/o1", order)
+
+    async def cleanup(etcd):
+        await delete_prefixes(etcd, f"/blocks/{user}/", f"/orders/{node_id}/", f"/nodes/disk/{node_id}")
+        kv = await etcd.get(f"/nodes/dn/{node_id}")
+        if kv is not None:
+            with contextlib.suppress(LeaseNotFound):
+                await etcd.lease_revoke(kv.lease)
+
+    with_etcd(prepare)
+    try:
+        with TestClient(metaserver_internal, client=(ip, 50000)) as internal:
+            registered = internal.post("/api/v1/internal/register", json=body).json()
+            lease_id = lease_from_hex(registered["lease_id"])
+            assert registered["heartbeat_s"] == 5
+            assert with_etcd(lambda etcd: etcd.lease_keys(lease_id)) == [f"/nodes/dn/{node_id}"]
+
+            beat = {"node_id": node_id, "lease_id": registered["lease_id"], "free_bytes": 50, "done_orders": []}
+            assert internal.post("/api/v1/internal/heartbeat", json=beat).json() == {"orders": [order]}
+            done = {**beat, "done_orders": ["o1"]}
+            assert internal.post("/api/v1/internal/heartbeat", json=done).json() == {"orders": []}
+            block = with_etcd(lambda etcd: etcd.get(f"/blocks/{user}/{hash}")).json()
+            assert block["stored_on"] == [node_id, "dn-destino"]
+            assert with_etcd(lambda etcd: etcd.get(f"/nodes/dn/{node_id}")).json()["free_bytes"] == 50
+
+            # Un disco nuevo saca al nodo de los stored_on, y el lease viejo ya no sirve para latir.
+            again = internal.post("/api/v1/internal/register", json={**body, "disk_id": "disco-2"}).json()
+            block = with_etcd(lambda etcd: etcd.get(f"/blocks/{user}/{hash}")).json()
+            assert block["stored_on"] == ["dn-destino"]
+            assert internal.post("/api/v1/internal/heartbeat", json=beat).json()["error"] == "E_NOT_FOUND"
+            assert internal.post("/api/v1/internal/heartbeat", json={**beat, "lease_id": again["lease_id"]}).status_code == 200
+    finally:
+        with_etcd(cleanup)
+
+
+def test_admin_status_shows_the_leader_of_a_real_election(environment, client):
+    name = "/election/leader"
+
+    async def campaign(etcd):
+        lease_id = await etcd.lease_grant(LEASE_S)
+        return lease_id, await etcd.campaign(name, lease_id, environment.encode())  # el meta_id como valor
+
+    async def resign(etcd):
+        await etcd.resign(won)
+        with contextlib.suppress(LeaseNotFound):
+            await etcd.lease_revoke(lease_id)
+
+    lease_id, won = with_etcd(campaign)
+    try:
+        response = client.get("/api/v1/admin/status", headers=bearer("admin", admin=True))
+        assert response.status_code == 200, response.json()
+        assert response.json()["leader"] == environment
+        assert environment in [meta["meta_id"] for meta in response.json()["metaservers"]]
+    finally:
+        with_etcd(resign)
