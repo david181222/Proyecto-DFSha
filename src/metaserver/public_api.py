@@ -8,9 +8,9 @@ Toda ruta de archivo se resuelve dentro del espacio del usuario del token, así 
 aquí no existe "ruta de otro usuario". 403 E_FORBIDDEN solo aparece en /admin sin
 rol de administrador y con un lock_id o upload_id de otro usuario.
 
-Implementadas: health, login y POST /admin/users (tarea 07), y ls, stat, mkdir, rmdir
-y rm (tarea 08). Las demás son stubs: tienen su firma, su modelo de respuesta y sus
-errores, pero responden 501 E_NOT_IMPLEMENTED.
+Implementadas: health, login y POST /admin/users (tarea 07); ls, stat, mkdir, rmdir
+y rm (tarea 08); y pedir, renovar y liberar locks (tarea 11). Las demás son stubs:
+tienen su firma, su modelo de respuesta y sus errores, pero responden 501 E_NOT_IMPLEMENTED.
 
 Al arrancar, el lifespan conecta con etcd, lee la clave del JWT y crea el primer
 administrador (metaserver.deps y metaserver.auth). Se arranca con python -m metaserver.
@@ -48,7 +48,7 @@ from dfs_common.models import (
     check_dfs_path,
 )
 from dfs_common.security import create_jwt
-from metaserver import auth, fs
+from metaserver import auth, fs, locks
 from metaserver.auth import CurrentUser, jwt_auth, require_admin
 from metaserver.deps import EtcdDep, JwtSecretDep, SettingsDep, open_resources
 from metaserver.keys import user_key
@@ -254,7 +254,6 @@ async def rm(path: RemovablePathQuery, claims: CurrentUser, etcd: EtcdDep, setti
         "directorio, 400 E_BAD_REQUEST. La ruta no tiene que existir todavía: con w se toma antes de "
         "crear el archivo, y el directorio padre se comprueba en la reserva y en el commit. DA-08."
     ),
-    dependencies=JWT,
     responses=error_responses(
         ErrorCode.E_BAD_REQUEST,
         ErrorCode.E_AUTH,
@@ -262,8 +261,16 @@ async def rm(path: RemovablePathQuery, claims: CurrentUser, etcd: EtcdDep, setti
         ErrorCode.E_UNAVAILABLE,
     ),
 )
-def acquire_lock(body: LockRequest):
-    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+async def acquire_lock(body: LockRequest, claims: CurrentUser, etcd: EtcdDep, settings: SettingsDep):
+    lock_id = await locks.acquire_lock(
+        etcd,
+        claims.sub,
+        body.path,
+        wait_s=body.wait_s,
+        lease_s=settings.lock_lease_s,
+        renew_s=settings.lock_renew_s,
+    )
+    return LockResponse(lock_id=lock_id, lease_s=settings.lock_lease_s)
 
 
 @router.put(
@@ -275,7 +282,6 @@ def acquire_lock(body: LockRequest):
         "Renueva el lease del lock; el cliente lo hace cada DFS_LOCK_RENEW_S. Si el lock ya venció, "
         "409 E_LOCK_LOST: el cliente lo perdió y empieza de nuevo. DA-08."
     ),
-    dependencies=JWT,
     responses=error_responses(
         ErrorCode.E_AUTH,
         ErrorCode.E_FORBIDDEN,
@@ -283,8 +289,9 @@ def acquire_lock(body: LockRequest):
         ErrorCode.E_UNAVAILABLE,
     ),
 )
-def renew_lock(lock_id: LockIdPath):
-    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+async def renew_lock(lock_id: LockIdPath, claims: CurrentUser, etcd: EtcdDep, settings: SettingsDep):
+    await locks.renew_lock(etcd, lock_id, claims.sub)
+    return LockResponse(lock_id=lock_id, lease_s=settings.lock_lease_s)
 
 
 @router.delete(
@@ -296,11 +303,11 @@ def renew_lock(lock_id: LockIdPath):
         "Libera el lock revocando su lease; entra el siguiente de la fila. Es idempotente: si el lock "
         "ya no existe, también responde 200. DA-08."
     ),
-    dependencies=JWT,
     responses=error_responses(ErrorCode.E_AUTH, ErrorCode.E_FORBIDDEN, ErrorCode.E_UNAVAILABLE),
 )
-def release_lock(lock_id: LockIdPath):
-    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+async def release_lock(lock_id: LockIdPath, claims: CurrentUser, etcd: EtcdDep):
+    await locks.release_lock(etcd, lock_id, claims.sub)
+    return OkResponse(ok=True)
 
 
 # --- Lectura y escritura de archivos (RF2, RF3) ---

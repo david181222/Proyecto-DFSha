@@ -43,6 +43,9 @@ _NOT_SENT = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
 # Mensajes de etcd que se reconocen por su texto. El de lease inexistente llega con
 # code 5 en /v3/kv y /v3/lease, pero con code 2 en /v3/lock y /v3/election.
 LEASE_NOT_FOUND = "requested lease not found"
+# /v3/lock/lock responde esto (code 2) si el lease del intento venció mientras esperaba en la
+# fila. etcd no corta la espera al vencer: responde cuando se suelta el lock que esperaba.
+LOCK_SESSION_EXPIRED = "mutex: session is expired"
 ELECTION_NO_LEADER = "election: no leader"
 # Un nodo sin líder rechaza la petición antes de proponerla: es seguro reenviarla, aun una txn.
 # Los demás Unavailable y DeadlineExceeded ("request timed out", "leader changed"...) no lo son.
@@ -184,8 +187,9 @@ def prefix_end(prefix: Key) -> bytes:
     return data[:-1] + bytes([data[-1] + 1])
 
 
-# Exactamente lo que produce lease_hex: hexadecimal en minúsculas, sin ceros a la izquierda y sin el 0.
+# Lo que produce lease_hex: hexadecimal en minúsculas, sin ceros a la izquierda y sin el 0.
 _LEASE_HEX = re.compile(r"[1-9a-f][0-9a-f]{0,15}")
+_MAX_LEASE_ID = 2**63 - 1  # etcd guarda el ID como int64 y no acepta uno mayor (responde un error)
 
 
 def lease_hex(lease_id: int) -> str:
@@ -198,7 +202,7 @@ def lease_hex(lease_id: int) -> str:
 
 def lease_from_hex(text: str) -> int:
     """Lo contrario de lease_hex. Un texto que lease_hex no pudo producir no nombra ningún lease."""
-    if not _LEASE_HEX.fullmatch(text):
+    if not _LEASE_HEX.fullmatch(text) or int(text, 16) > _MAX_LEASE_ID:
         raise LeaseNotFound(f"lease inválido: {text!r}")
     return int(text, 16)
 
@@ -327,7 +331,7 @@ class Etcd:
                         raise ResponseLost(message)
                     continue
                 self._current = index  # respondió, aunque sea con un error
-                if LEASE_NOT_FOUND in message:
+                if LEASE_NOT_FOUND in message or LOCK_SESSION_EXPIRED in message:
                     raise LeaseNotFound(message)
                 raise EtcdError(message)
             self._current = index
@@ -407,6 +411,18 @@ class Etcd:
         """Revoca el lease, y etcd borra las claves atadas a él; LeaseNotFound si ya no existe."""
         await self._call("/v3/lease/revoke", {"ID": lease_id})
 
+    async def lease_keys(self, lease_id: int) -> list[str] | None:
+        """Claves atadas al lease, en orden; None si el lease ya no existe.
+
+        Usa /v3/lease/timetolive con keys: true. Comprobado en etcd 3.5.35: las claves llegan
+        en base64 y sin orden; si el lease no tiene claves, no llega "keys"; y un lease que no
+        existe no da error, sino TTL "-1".
+        """
+        data = await self._call("/v3/lease/timetolive", {"ID": lease_id, "keys": True})
+        if int(data.get("TTL", 0)) == -1:
+            return None
+        return sorted(_unb64(key).decode() for key in data.get("keys", []))
+
     # --- Lock (DA-08) ---
 
     async def lock(self, name: str, lease_id: int, *, wait_s: float) -> str | None:
@@ -417,7 +433,8 @@ class Etcd:
         - wait_s > 0: el servicio de lock de etcd pone el intento en la fila y responde
           cuando le toca. Si wait_s se agota antes, o la espera se corta (ResponseLost),
           None. Quien llama revoca el lease para sacarlo de la fila (tarea 11); eso también
-          borra la clave si el lock llegó justo cuando se agotaba la espera.
+          borra la clave si el lock llegó justo cuando se agotaba la espera. El servicio no
+          renueva el lease mientras espera: si vence en la fila, LeaseNotFound.
         - wait_s == 0: intento sin esperar. Pone su clave atada al lease y mira si bajo
           {name}/ hay otra más antigua (menor create_revision): la del que tiene el lock o
           va antes en la fila. Si la hay, borra la suya y devuelve None.

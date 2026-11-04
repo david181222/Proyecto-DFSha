@@ -189,9 +189,9 @@ def test_contratos_md_has_the_same_error_table():
 
 
 # Rutas que ya no son stubs, además de health. Sus pruebas están en tests/test_auth.py (tarea 07),
-# tests/test_fs.py (tarea 08), tests/test_datanode_internal.py (tarea 09) y tests/test_datanode_public.py
-# (tarea 10). PUT /blocks/{hash} sigue siendo stub, pero antes verifica el pase: su 501 se prueba con un
-# pase válido en tests/test_datanode_public.py.
+# tests/test_fs.py (tarea 08), tests/test_datanode_internal.py (tarea 09), tests/test_datanode_public.py
+# (tarea 10) y tests/test_locks.py (tarea 11). PUT /blocks/{hash} sigue siendo stub, pero antes verifica
+# el pase: su 501 se prueba con un pase válido en tests/test_datanode_public.py.
 IMPLEMENTED_ROUTES = {
     ("metaserver-public", "POST", "/api/v1/auth/login"),
     ("metaserver-public", "POST", "/api/v1/admin/users"),
@@ -200,6 +200,9 @@ IMPLEMENTED_ROUTES = {
     ("metaserver-public", "POST", "/api/v1/fs/mkdir"),
     ("metaserver-public", "DELETE", "/api/v1/fs/rmdir"),
     ("metaserver-public", "DELETE", "/api/v1/fs/rm"),
+    ("metaserver-public", "POST", "/api/v1/locks"),
+    ("metaserver-public", "PUT", "/api/v1/locks/{lock_id}"),
+    ("metaserver-public", "DELETE", "/api/v1/locks/{lock_id}"),
     ("datanode-internal", "PUT", "/api/v1/internal/blocks/{user}/{hash}"),
     ("datanode-public", "GET", "/api/v1/blocks/{hash}"),
     ("datanode-public", "PUT", "/api/v1/blocks/{hash}"),
@@ -605,11 +608,13 @@ def test_wait_s_defaults_to_30():
     assert LockRequest(path="/docs/informe.pdf").wait_s == 30
 
 
-@pytest.mark.parametrize(("wait_s", "status"), [(-1, 400), (0, 501), (60, 501), (61, 400)])
+@pytest.mark.parametrize(("wait_s", "status"), [(-1, 400), (0, 200), (60, 200), (61, 400)])
 def test_wait_s_goes_from_0_to_60(wait_s, status):
-    response = TestClient(metaserver_public).post(
-        "/api/v1/locks", json={"path": "/docs/informe.pdf", "wait_s": wait_s}
-    )
+    # Con FakeEtcd el lock está libre: con un wait_s válido se obtiene sin esperar (tarea 11).
+    with public_client() as client:
+        response = client.post(
+            "/api/v1/locks", json={"path": "/docs/informe.pdf", "wait_s": wait_s}, headers=bearer()
+        )
     assert response.status_code == status
 
 

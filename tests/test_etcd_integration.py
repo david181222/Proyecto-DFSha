@@ -135,6 +135,22 @@ async def test_lease_and_keepalive(etcd, base):
         await etcd.put(key, b"", lease=lease_id)
 
 
+async def test_lease_keys(etcd, base):
+    """Las claves atadas a un lease, en orden; None si el lease ya no existe (tarea 11)."""
+    lease_id = await etcd.lease_grant(LEASE_S)
+    try:
+        assert await etcd.lease_keys(lease_id) == []
+        lock = lock_key(f"{base}/locks/ana/docs/informe.pdf", lease_id)
+        upload = f"{base}/uploads/9b2f6d1e-4c3a-4e8b-9f1d-2a7c5e8b1d43"
+        await etcd.put(upload, {"user": "ana"}, lease=lease_id)
+        await etcd.put(lock, b"", lease=lease_id)
+        await etcd.put(f"{base}/sin-lease", b"")
+        assert await etcd.lease_keys(lease_id) == sorted([lock, upload])
+    finally:
+        await revoke_all(etcd, lease_id)
+    assert await etcd.lease_keys(lease_id) is None
+
+
 async def test_lock_with_and_without_wait(etcd, base):
     name = f"{base}/locks/ana/docs/informe.pdf"
     first, second, third, fourth = [await etcd.lease_grant(LEASE_S) for _ in range(4)]
