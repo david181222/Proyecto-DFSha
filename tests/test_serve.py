@@ -3,6 +3,8 @@
 import importlib
 import importlib.util
 import ssl
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -49,6 +51,41 @@ def test_public_is_https_and_internal_is_mtls_both_tls_1_3(settings, public_app,
     for config in (public, internal):
         assert config.ssl.minimum_version == ssl.TLSVersion.TLSv1_3
         assert config.loaded
+
+
+# Una API cuyo lifespan usa un hilo de trabajo (como hash_password al crear el primer admin)
+# y después falla (como cuando etcd no responde), junto a otra API que sí arranca.
+FAILED_STARTUP = """
+import asyncio
+from contextlib import asynccontextmanager
+
+import uvicorn
+from fastapi import FastAPI
+from fastapi.concurrency import run_in_threadpool
+
+from dfs_common.serve import serve
+
+
+@asynccontextmanager
+async def broken(app):
+    await run_in_threadpool(sum, [1, 2])
+    raise RuntimeError("etcd no respondió")
+    yield
+
+
+configs = [uvicorn.Config(FastAPI(lifespan=broken), port=0), uvicorn.Config(FastAPI(), port=0)]
+raise SystemExit(asyncio.run(serve(configs)))
+"""
+
+
+def test_a_failed_startup_ends_the_process_so_docker_restarts_it(tmp_path):
+    """Sin esto, el proceso quedaba vivo y sin APIs: Docker no lo reiniciaba (tarea 07)."""
+    script = tmp_path / "failed_startup.py"
+    script.write_text(FAILED_STARTUP, encoding="utf-8")
+    # Si el proceso se colgara, subprocess.run lo mata al vencer el timeout y la prueba falla.
+    result = subprocess.run([sys.executable, str(script)], capture_output=True, timeout=30)
+    assert result.returncode == 3  # el código con que uvicorn avisa que la app no arrancó
+    assert b"etcd no respondi" in result.stderr
 
 
 def test_main_modules_read_nothing_on_import(monkeypatch):

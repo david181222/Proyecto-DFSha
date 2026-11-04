@@ -6,7 +6,26 @@ Equipo: Edwin Vélez, José Díaz y Santiago Martínez.
 
 ## Estado
 
-Tareas 01 a 02d: contratos de API, sin pendientes (`docs/contratos.md`). Tareas 03 a 05: seguridad común (JWT y pases de bloque), generación de la CA, los certificados y los secretos (`scripts/gen_secrets.py`), y el sistema completo en un PC con TLS 1.3 y mTLS (`compose.local.yml`, ver "Correr en local"). Las cuatro APIs existen como *stubs* que responden 501, salvo `GET /api/v1/health`; la validación de parámetros sí funciona (por ejemplo, una ruta de archivo inválida responde 400). Todavía no hay lógica (etcd, cifrado, réplicas ni almacenamiento).
+| Tareas | Qué hay |
+|---|---|
+| 01 a 02d | Contratos de API, sin puntos abiertos (`docs/contratos.md`) |
+| 03 a 05 | Seguridad común (JWT y pases de bloque), CA, certificados y secretos (`scripts/gen_secrets.py`), y el sistema completo en un PC con TLS 1.3 y mTLS (`compose.local.yml`, ver "Correr en local") |
+| 06 | Cliente de etcd del MetaServer por la pasarela HTTP/JSON, con mTLS y paso a otro nodo si uno no responde (`src/metaserver/etcd.py`) |
+| 07 | `POST /auth/login`, `POST /admin/users` y el primer administrador, que el MetaServer crea al arrancar (`src/metaserver/auth.py`) |
+| 08 | `ls`, `stat`, `mkdir`, `rmdir` y `rm` sobre etcd (`src/metaserver/fs.py`) |
+
+Las demás rutas siguen siendo *stubs* que responden 501: locks, lectura y subida de archivos, lista de MetaServers, `/admin/status`, la API interna del MetaServer y todo el DataNode. La validación de parámetros funciona en todas. Todavía no hay cifrado, réplicas ni almacenamiento de bloques. Las decisiones de comportamiento de las tareas 06 a 08 están en la sección 11 de `docs/contratos.md`.
+
+Código del MetaServer:
+
+| Módulo | Qué hace |
+|---|---|
+| `public_api.py` y `internal_api.py` | Rutas: el contrato HTTP. Las implementadas solo llaman a los módulos de abajo |
+| `etcd.py` | Cliente de etcd: claves y valores en base64, transacciones, leases, lock y elección |
+| `deps.py` | Lo que se crea al arrancar (configuración, cliente de etcd, clave del JWT) y se entrega a las rutas |
+| `auth.py` | Contraseñas Argon2id, `require_user` y `require_admin`, usuarios y primer administrador |
+| `fs.py` | Directorios y archivos del espacio de cada usuario |
+| `keys.py` | Formato de las claves de etcd (sección 8 del contrato) |
 
 | Documento | Contenido |
 |---|---|
@@ -47,6 +66,16 @@ pytest
 
 `tests/test_contratos.py` comprueba que las rutas sean las del contrato, que los ejemplos de `docs/contratos.md` sean los de los modelos y validen, que las tablas de rutas, de errores y de variables coincidan con el código y con `.env.example`, que `docs/api/` esté al día y que se cumplan las decisiones con que se cerraron los pendientes de la tarea 01.
 
+Las rutas del MetaServer se prueban con un etcd en memoria (`tests/fakes.py`). Las pruebas contra un etcd real (`tests/test_etcd_integration.py` y `tests/test_metaserver_integration.py`) se saltan si no está la variable `DFS_TEST_ETCD`. Para correrlas, desde PowerShell:
+
+```powershell
+docker run -d --rm --name etcd-test -p 2379:2379 -e ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:2379 -e ETCD_ADVERTISE_CLIENT_URLS=http://127.0.0.1:2379 quay.io/coreos/etcd:v3.5.35
+$env:DFS_TEST_ETCD = "http://127.0.0.1:2379"; pytest; Remove-Item Env:DFS_TEST_ETCD
+docker stop etcd-test
+```
+
+En Linux, la segunda línea es `DFS_TEST_ETCD=http://127.0.0.1:2379 pytest`.
+
 ## Regenerar el OpenAPI
 
 Después de cambiar un modelo, una ruta o un error:
@@ -57,15 +86,15 @@ python scripts/export_openapi.py
 
 Escribe `docs/api/metaserver-public.json`, `metaserver-internal.json`, `datanode-public.json` y `datanode-internal.json`. Si nadie cambió el código, los archivos quedan iguales. `fastapi` y `pydantic` tienen versión fija en `pyproject.toml` porque el OpenAPI generado cambia entre versiones.
 
-## Correr un stub en local
+## Mirar la documentación interactiva
 
-Sin TLS, solo para mirar la documentación interactiva en `http://127.0.0.1:8443/docs`:
+Sin TLS, en `http://127.0.0.1:8443/docs`:
 
 ```bash
-uvicorn metaserver.public_api:app --port 8443
+uvicorn metaserver.public_api:app --port 8443 --lifespan off
 ```
 
-Las otras apps son `metaserver.internal_api:app`, `datanode.public_api:app` y `datanode.internal_api:app`.
+`--lifespan off` hace falta porque, al arrancar, la API pública del MetaServer lee sus secretos y se conecta a etcd; sin esa opción, fuera de Docker no arranca. Así sirve `/docs` y `/health`; las rutas implementadas responden 500, porque no hay etcd ni clave del JWT. Las otras apps son `metaserver.internal_api:app`, `datanode.public_api:app` y `datanode.internal_api:app`.
 
 ## Correr en local
 
@@ -91,7 +120,7 @@ docker compose -f compose.local.yml up -d --build
 docker compose -f compose.local.yml ps
 ```
 
-Deben quedar 11 contenedores corriendo y los 3 etcd en `healthy`. Los tiempos de DA-16 toman los valores normales; para usar los de prueba, crea un `.env` en la raíz (git lo ignora) con la columna "Pruebas" de `.env.example`, por ejemplo `DFS_RETENTION_S=60`.
+Deben quedar 11 contenedores corriendo y los 3 etcd en `healthy`. Al arrancar, un MetaServer crea el usuario `admin` con la contraseña de `secrets/local/admin_password`; si etcd todavía no responde, el contenedor termina y Docker lo reinicia hasta que etcd esté listo. Los tiempos de DA-16 toman los valores normales; para usar los de prueba, crea un `.env` en la raíz (git lo ignora) con la columna "Pruebas" de `.env.example`, por ejemplo `DFS_RETENTION_S=60`.
 
 **3. Comprobar TLS y mTLS:**
 
@@ -114,7 +143,24 @@ docker compose -f compose.local.yml exec etcd1 etcdctl member list -w table
 docker compose -f compose.local.yml exec etcd1 etcdctl endpoint health --cluster
 ```
 
-**4. Apagar:**
+**4. Entrar como administrador.** Responde `{"token": "...", "expires_in": 3600}`. La contraseña se lee del archivo y no se muestra.
+
+PowerShell:
+
+```powershell
+$login = @{ user = "admin"; password = (Get-Content secrets/local/admin_password -Raw).Trim() } | ConvertTo-Json -Compress
+$login | docker compose -f compose.local.yml exec -T client curl -s --cacert /run/secrets/ca.crt -H "Content-Type: application/json" --data-binary "@-" https://10.88.0.21:8443/api/v1/auth/login
+```
+
+WSL o Linux:
+
+```bash
+printf '{"user":"admin","password":"%s"}' "$(cat secrets/local/admin_password)" | docker compose -f compose.local.yml exec -T client curl -s --cacert /run/secrets/ca.crt -H "Content-Type: application/json" --data-binary @- https://10.88.0.21:8443/api/v1/auth/login
+```
+
+Con ese token se crean usuarios (`POST /api/v1/admin/users`), y con el token de cada usuario se usan las rutas `/fs` (`docs/contratos.md`, sección 2).
+
+**5. Apagar:**
 
 ```bash
 docker compose -f compose.local.yml down      # conserva los datos de etcd y de los DataNodes

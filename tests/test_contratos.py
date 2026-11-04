@@ -25,8 +25,11 @@ from dfs_common.config import Settings
 from dfs_common.errors import ERROR_TABLE, ErrorCode, ErrorResponse
 from dfs_common.models import DirEntry, HeartbeatRequest, LockRequest, MetaServerListResponse, check_dfs_path
 from dfs_common.security import sign_pass, verify_pass
+from metaserver.etcd import EtcdError, LeaseNotFound, ResponseLost
 from metaserver.internal_api import app as metaserver_internal
 from metaserver.public_api import app as metaserver_public
+
+from fakes import bearer, public_client  # tests/fakes.py
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRATOS_MD = (ROOT / "docs" / "contratos.md").read_text(encoding="utf-8")
@@ -185,10 +188,18 @@ def test_contratos_md_has_the_same_error_table():
         assert row in CONTRATOS_MD, f"falta o cambió la fila de {code} en docs/contratos.md"
 
 
-# Rutas que ya no son stubs, además de health. Sus pruebas están en tests/test_datanode_internal.py
-# (tarea 09) y tests/test_datanode_public.py (tarea 10). PUT /blocks/{hash} sigue siendo stub, pero
-# antes verifica el pase: su 501 se prueba con un pase válido en tests/test_datanode_public.py.
+# Rutas que ya no son stubs, además de health. Sus pruebas están en tests/test_auth.py (tarea 07),
+# tests/test_fs.py (tarea 08), tests/test_datanode_internal.py (tarea 09) y tests/test_datanode_public.py
+# (tarea 10). PUT /blocks/{hash} sigue siendo stub, pero antes verifica el pase: su 501 se prueba con un
+# pase válido en tests/test_datanode_public.py.
 IMPLEMENTED_ROUTES = {
+    ("metaserver-public", "POST", "/api/v1/auth/login"),
+    ("metaserver-public", "POST", "/api/v1/admin/users"),
+    ("metaserver-public", "GET", "/api/v1/fs/ls"),
+    ("metaserver-public", "GET", "/api/v1/fs/stat"),
+    ("metaserver-public", "POST", "/api/v1/fs/mkdir"),
+    ("metaserver-public", "DELETE", "/api/v1/fs/rmdir"),
+    ("metaserver-public", "DELETE", "/api/v1/fs/rm"),
     ("datanode-internal", "PUT", "/api/v1/internal/blocks/{user}/{hash}"),
     ("datanode-public", "GET", "/api/v1/blocks/{hash}"),
     ("datanode-public", "PUT", "/api/v1/blocks/{hash}"),
@@ -445,20 +456,26 @@ INVALID_PATHS = [
 ]
 
 
+# Las rutas /fs exigen el JWT antes de validar los parámetros: sin token, una ruta inválida
+# responde 401. Por eso estas pruebas mandan un token válido (tests/fakes.py).
+
+
 @pytest.mark.parametrize("path", VALID_PATHS, ids=range(len(VALID_PATHS)))
 def test_valid_paths_are_accepted(path):
     assert check_dfs_path(path) == path
-    response = TestClient(metaserver_public).get("/api/v1/fs/stat", params={"path": path})
-    assert response.status_code == 501
+    with public_client() as client:
+        response = client.get("/api/v1/fs/stat", params={"path": path}, headers=bearer())
+    # Válida: llega a la ruta. La raíz existe siempre; las demás no existen en un etcd vacío.
+    assert response.status_code == (200 if path == "/" else 404)
 
 
 @pytest.mark.parametrize("path", INVALID_PATHS, ids=range(len(INVALID_PATHS)))
 def test_invalid_paths_respond_400(path):
     with pytest.raises(ValueError):
         check_dfs_path(path)
-    client = TestClient(metaserver_public)
-    in_query = client.get("/api/v1/fs/ls", params={"path": path})
-    in_body = client.post("/api/v1/fs/mkdir", json={"path": path})
+    with public_client() as client:
+        in_query = client.get("/api/v1/fs/ls", params={"path": path}, headers=bearer())
+        in_body = client.post("/api/v1/fs/mkdir", json={"path": path}, headers=bearer())
     for response in (in_query, in_body):
         assert response.status_code == 400
         assert response.json()["error"] == "E_BAD_REQUEST"
@@ -496,10 +513,15 @@ def test_forbidden_only_where_decided():
 # --- Decisión 5: directorios ---
 
 
-@pytest.mark.parametrize("route", ["/api/v1/fs/ls", "/api/v1/fs/stat"])
-def test_root_always_exists(route):
-    response = TestClient(metaserver_public).get(route, params={"path": "/"})
-    assert response.status_code == 501  # válida: llega al stub
+def test_root_always_exists():
+    # Con un etcd vacío: la raíz no se guarda, pero existe y es un directorio.
+    with public_client() as client:
+        ls_root = client.get("/api/v1/fs/ls", params={"path": "/"}, headers=bearer())
+        stat_root = client.get("/api/v1/fs/stat", params={"path": "/"}, headers=bearer())
+    assert ls_root.status_code == 200
+    assert ls_root.json() == {"entries": []}
+    assert stat_root.status_code == 200
+    assert stat_root.json() == {"path": "/", "type": "dir", "size": 0, "version": 0, "modified_at": 0}
 
 
 def test_mkdir_does_not_create_parents():
@@ -638,11 +660,12 @@ def test_stat_root_has_modified_at_0():
 
 @pytest.mark.parametrize("route", ["/api/v1/fs/rmdir", "/api/v1/fs/rm"])
 def test_removing_the_root_is_bad_request(route):
-    client = TestClient(metaserver_public)
-    root = client.delete(route, params={"path": "/"})
+    with public_client() as client:
+        root = client.delete(route, params={"path": "/"}, headers=bearer())
+        other = client.delete(route, params={"path": "/docs"}, headers=bearer())
     assert root.status_code == 400
     assert root.json()["error"] == "E_BAD_REQUEST"
-    assert client.delete(route, params={"path": "/docs"}).status_code == 501  # otra ruta sí llega al stub
+    assert other.json()["error"] == "E_NOT_FOUND"  # otra ruta sí llega a la ruta: no existe
 
 
 def test_ls_on_a_file_returns_that_file_as_the_only_entry():
@@ -764,7 +787,7 @@ def test_internal_error_is_in_the_table():
 # Las rutas de bloques del DataNode ya no son stubs: sus casos están en tests/test_datanode_internal.py
 # y tests/test_datanode_public.py.
 UNEXPECTED_ERROR_CASES = [
-    ("metaserver.public_api", "GET", "/api/v1/fs/ls", {"params": {"path": "/docs"}}),
+    ("metaserver.public_api", "GET", "/api/v1/files/blocks", {"params": {"path": "/docs/informe.pdf"}}),
     ("metaserver.internal_api", "POST", "/api/v1/internal/register", {"json": first_example(models.RegisterRequest)}),
 ]
 
@@ -790,9 +813,15 @@ def test_unexpected_exception_responds_500_internal(module_name, method, url, re
     assert any(record.levelname == "ERROR" and record.exc_info for record in caplog.records)  # quedó en el log
 
 
-def test_dfs_error_is_the_only_project_exception():
+def test_dfs_error_is_the_only_exception_with_an_error_code():
+    """Una sola excepción lleva código de error y llega al cliente: DFSError.
+
+    Las de metaserver.etcd (EtcdError, LeaseNotFound y ResponseLost, tarea 06) son internas del MetaServer:
+    no llevan código y las rutas las convierten en un DFSError (o en 500 E_INTERNAL).
+    """
     modules = ["dfs_common.errors", "dfs_common.models", "dfs_common.config", "dfs_common.app"]
     modules += ["metaserver.public_api", "metaserver.internal_api", "datanode.public_api", "datanode.internal_api"]
+    modules += ["metaserver.etcd", "metaserver.auth", "metaserver.deps", "metaserver.fs", "metaserver.keys"]
     project_packages = {"dfs_common", "metaserver", "datanode"}
     project_exceptions = set()
     for name in modules:
@@ -800,7 +829,11 @@ def test_dfs_error_is_the_only_project_exception():
             is_exception = inspect.isclass(obj) and issubclass(obj, Exception)
             if is_exception and obj.__module__.split(".")[0] in project_packages:
                 project_exceptions.add(obj)
-    assert project_exceptions == {errors.DFSError}
+    internal = {EtcdError, LeaseNotFound, ResponseLost}
+    assert project_exceptions == {errors.DFSError} | internal
+    for exception in internal:
+        assert not issubclass(exception, errors.DFSError)
+        assert not hasattr(exception("mensaje de etcd"), "code")
 
 
 # --- Decisión 6: tipo equivocado o sin padre ---

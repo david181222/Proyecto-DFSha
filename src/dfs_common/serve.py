@@ -47,11 +47,34 @@ def server_configs(
     return [server_config(settings, *public, mtls=False), server_config(settings, *internal, mtls=True)]
 
 
-async def serve(configs: list[uvicorn.Config]) -> None:
-    # Cada Server captura SIGTERM y SIGINT; al terminar restaura el manejador anterior
-    # y vuelve a lanzar la señal, así que una sola señal detiene a los dos.
-    await asyncio.gather(*(uvicorn.Server(config).serve() for config in configs))
+async def serve(configs: list[uvicorn.Config]) -> int:
+    """Corre los servidores hasta que terminen. Devuelve 0, o el código de salida si uno no arrancó.
+
+    Cada Server captura SIGTERM y SIGINT; al terminar restaura el manejador anterior
+    y vuelve a lanzar la señal, así que una sola señal detiene a los dos.
+
+    Si un servidor no arranca (por ejemplo, su lifespan no pudo hablar con etcd), uvicorn
+    hace sys.exit() dentro del bucle de eventos. Aquí se atrapa, se detienen los demás y
+    run() sale después, ya fuera del bucle: si saliera dentro, un hilo de trabajo de anyio
+    (run_in_threadpool) quedaría vivo y el proceso se colgaría sin APIs, en vez de terminar
+    para que Docker lo reinicie (restart: unless-stopped).
+    """
+    servers = [uvicorn.Server(config) for config in configs]
+    exit_codes = []
+
+    async def serve_one(server: uvicorn.Server) -> None:
+        try:
+            await server.serve()
+        except SystemExit as exc:
+            exit_codes.append(exc.code)
+            for other in servers:
+                other.should_exit = True
+
+    await asyncio.gather(*(serve_one(server) for server in servers))
+    return exit_codes[0] if exit_codes else 0
 
 
 def run(settings: Settings, public: tuple[FastAPI, int], internal: tuple[FastAPI, int]) -> None:
-    asyncio.run(serve(server_configs(settings, public, internal)))
+    exit_code = asyncio.run(serve(server_configs(settings, public, internal)))
+    if exit_code:
+        raise SystemExit(exit_code)
