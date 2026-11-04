@@ -1,13 +1,16 @@
-"""Rutas de las tareas 07 y 08 contra un etcd real, con el lifespan de verdad.
+"""Rutas de las tareas 07, 08 y 11 contra un etcd real, con el lifespan de verdad.
 
-Las pruebas de tests/test_auth.py y tests/test_fs.py usan FakeEtcd. Estas confirman que
-con etcd pasa lo mismo: transacciones de creación y de rango, revisiones, leases y el
-intento de lock sin espera. Se saltan sin la variable DFS_TEST_ETCD; cómo levantar el
-etcd está en el docstring de tests/test_etcd_integration.py.
+Las pruebas de tests/test_auth.py, tests/test_fs.py y tests/test_locks.py usan FakeEtcd.
+Estas confirman que con etcd pasa lo mismo: transacciones de creación y de rango,
+revisiones, leases, el intento de lock sin espera, la fila del servicio de lock y la
+renovación del lease mientras se espera en ella. Se saltan sin la variable DFS_TEST_ETCD;
+cómo levantar el etcd está en el docstring de tests/test_etcd_integration.py.
 
 Cada prueba usa un usuario y un file_id propios y borra sus claves al terminar.
 """
 
+import asyncio
+import contextlib
 import os
 import uuid
 
@@ -15,9 +18,10 @@ import anyio
 import pytest
 from fastapi.testclient import TestClient
 
+from dfs_common.errors import DFSError, ErrorCode
 from dfs_common.security import verify_jwt
-from metaserver import auth, deps
-from metaserver.etcd import Etcd, op_delete, prefix_end
+from metaserver import auth, deps, locks
+from metaserver.etcd import Etcd, LeaseNotFound, lease_from_hex, lease_hex, op_delete, prefix_end
 from metaserver.public_api import app as metaserver_public
 
 from fakes import JWT_SECRET, bearer
@@ -25,7 +29,8 @@ from fakes import JWT_SECRET, bearer
 ENDPOINT = os.environ.get("DFS_TEST_ETCD", "")
 pytestmark = pytest.mark.skipif(not ENDPOINT, reason="sin DFS_TEST_ETCD no hay un etcd real contra el cual probar")
 
-LEASE_S = 30  # TTL del lease del "otro escritor" de la prueba de rm
+LEASE_S = 30  # TTL del lease del "otro escritor" de la prueba de rm y del dueño del lock en las de locks
+SHORT_LEASE_S = 2  # el TTL mínimo de etcd con su configuración por defecto
 
 
 def with_etcd(work):
@@ -151,3 +156,83 @@ def test_rm(client, user):
         assert locks == []
     finally:
         with_etcd(lambda etcd: delete_prefixes(etcd, f"/files/{file_id}/"))
+
+
+# --- Locks (tarea 11) ---
+
+
+def test_locks(client, user):
+    path = "/informe.pdf"
+    name = f"/locks/{user}{path}"
+    route = "/api/v1/locks"
+
+    def take():
+        return client.post(route, json={"path": path, "wait_s": 0}, headers=bearer(user))
+
+    taken = take()
+    lock_id = taken.json()["lock_id"]
+    assert taken.json() == {"lock_id": lock_id, "lease_s": 30}
+    assert take().json()["error"] == "E_LOCKED"
+    in_line = with_etcd(lambda etcd: etcd.get_prefix(f"{name}/", keys_only=True))
+    assert [kv.key for kv in in_line] == [f"{name}/{lock_id}"]  # el segundo intento salió de la fila
+
+    assert client.put(f"{route}/{lock_id}", headers=bearer(user)).json() == {"lock_id": lock_id, "lease_s": 30}
+    assert client.put(f"{route}/{lock_id}", headers=bearer(f"o{user}")).json()["error"] == "E_FORBIDDEN"
+    assert client.delete(f"{route}/{lock_id}", headers=bearer(f"o{user}")).json()["error"] == "E_FORBIDDEN"
+
+    assert client.delete(f"{route}/{lock_id}", headers=bearer(user)).json() == {"ok": True}
+    assert client.delete(f"{route}/{lock_id}", headers=bearer(user)).json() == {"ok": True}
+    assert client.put(f"{route}/{lock_id}", headers=bearer(user)).json()["error"] == "E_LOCK_LOST"
+    assert with_etcd(lambda etcd: etcd.lease_keys(lease_from_hex(lock_id))) is None
+
+
+def test_a_lease_that_is_not_a_lock_is_never_revoked_or_renewed(client, user):
+    """Decisión 1: DELETE y PUT /locks no tocan un lease que no tiene clave de lock."""
+    key = f"/test-{user}/nodes/dn/dn1"  # como la clave de latidos de un DataNode
+
+    async def grant(etcd):
+        lease_id = await etcd.lease_grant(LEASE_S)
+        await etcd.put(key, {"ip": "172.31.0.10"}, lease=lease_id)
+        return lease_id
+
+    async def revoke(etcd):
+        with contextlib.suppress(LeaseNotFound):
+            await etcd.lease_revoke(lease_id)
+
+    lease_id = with_etcd(grant)
+    try:
+        lock_id = lease_hex(lease_id)
+        assert client.delete(f"/api/v1/locks/{lock_id}", headers=bearer(user)).json() == {"ok": True}
+        assert client.put(f"/api/v1/locks/{lock_id}", headers=bearer(user)).json()["error"] == "E_LOCK_LOST"
+        assert with_etcd(lambda etcd: etcd.lease_keys(lease_id)) == [key]  # sigue vivo, con su clave
+    finally:
+        with_etcd(revoke)
+
+
+async def wait_behind_a_holder(etcd: Etcd, user: str, *, renew_s: float) -> tuple[str, list[str] | None]:
+    """Un intento con un lease de SHORT_LEASE_S espera en la fila el doble de ese tiempo; después
+    el dueño suelta el lock. Devuelve el lock_id que obtuvo y las claves de su lease."""
+    path = "/informe.pdf"
+    holder = await locks.acquire_lock(etcd, user, path, wait_s=0, lease_s=LEASE_S, renew_s=renew_s)
+    waiter = asyncio.create_task(
+        locks.acquire_lock(etcd, user, path, wait_s=10, lease_s=SHORT_LEASE_S, renew_s=renew_s)
+    )
+    await asyncio.sleep(2 * SHORT_LEASE_S)
+    assert not waiter.done()
+    await locks.release_lock(etcd, holder, user)
+    lock_id = await waiter
+    return lock_id, await etcd.lease_keys(lease_from_hex(lock_id))
+
+
+def test_the_lease_of_a_waiting_attempt_is_renewed_until_it_enters(user):
+    """El servicio de lock de etcd no renueva el lease del intento: lo renueva el MetaServer."""
+    lock_id, keys = with_etcd(lambda etcd: wait_behind_a_holder(etcd, user, renew_s=0.5))
+    assert keys == [f"/locks/{user}/informe.pdf/{lock_id}"]
+
+
+def test_a_waiting_attempt_whose_lease_expires_is_423(user):
+    """Decisión 2: sin renovación (renew_s mayor que la espera), el lease vence en la fila;
+    etcd responde "mutex: session is expired" cuando se suelta el lock, y eso es un 423."""
+    with pytest.raises(DFSError) as caught:
+        with_etcd(lambda etcd: wait_behind_a_holder(etcd, user, renew_s=60))
+    assert caught.value.code == ErrorCode.E_LOCKED

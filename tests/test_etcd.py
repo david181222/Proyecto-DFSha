@@ -77,7 +77,8 @@ def test_lease_ids_are_hex_in_the_api_and_in_the_lock_key():
     for valid in (1, 0xF, lease_id, 2**63 - 1):  # etcd da IDs positivos de 63 bits
         assert lease_from_hex(lease_hex(valid)) == valid
     # Solo se acepta lo que lease_hex produce: sin mayúsculas, signo, prefijo, ceros a la izquierda ni el 0.
-    for text in ("", "no-es-hex", "694DA19F5BA25D03", "-1", "0x1f", "0001f", "0", "1" * 17):
+    # Tampoco 16 cifras que pasan de 63 bits: etcd no las acepta como int64 (responde un error, no TTL -1).
+    for text in ("", "no-es-hex", "694DA19F5BA25D03", "-1", "0x1f", "0001f", "0", "1" * 17, "8" + "0" * 15, "f" * 16):
         with pytest.raises(LeaseNotFound):
             lease_from_hex(text)
 
@@ -147,6 +148,31 @@ async def test_lease_grant_and_keepalive_read_integers_sent_as_text():
         assert await etcd.lease_keepalive(lease_id) == 30
 
     assert requests == [{"TTL": 30}, {"ID": 7587898652998393091}]
+
+
+@pytest.mark.anyio
+async def test_lease_keys_asks_timetolive_for_the_keys_and_sorts_them():
+    """Comprobado en etcd 3.5.35: las claves llegan en base64 y sin orden; si el lease no tiene
+    claves no llega "keys"; y un lease que no existe no da error, sino TTL "-1"."""
+    lock = lock_key(NAME, LEASE)
+    upload = "/uploads/9b2f6d1e-4c3a-4e8b-9f1d-2a7c5e8b1d43"
+    answers = [
+        {**HEADER, "ID": str(LEASE), "TTL": "28", "grantedTTL": "30", "keys": [b64(upload), b64(lock)]},
+        {**HEADER, "ID": str(LEASE), "TTL": "28", "grantedTTL": "30"},
+        {**HEADER, "ID": str(LEASE), "TTL": "-1"},
+    ]
+    seen = []
+
+    def handler(request):
+        seen.append((request.url.path, json.loads(request.content)))
+        return httpx.Response(200, json=answers.pop(0))
+
+    async with make_etcd(handler) as etcd:
+        assert await etcd.lease_keys(LEASE) == [lock, upload]
+        assert await etcd.lease_keys(LEASE) == []
+        assert await etcd.lease_keys(LEASE) is None
+
+    assert seen == [("/v3/lease/timetolive", {"ID": LEASE, "keys": True})] * 3
 
 
 @pytest.mark.anyio
@@ -511,6 +537,17 @@ async def test_lock_with_wait_returns_none_when_the_wait_runs_out_or_is_cut(lost
         assert await etcd.lock(NAME, LEASE, wait_s=1) is None
 
     assert calls == ["etcd1"]  # agotar la espera no es una caída: no prueba otro nodo
+
+
+@pytest.mark.anyio
+async def test_lock_whose_lease_expires_while_waiting_raises_lease_not_found():
+    """El servicio de lock no renueva el lease del intento. Si vence en la fila, etcd sigue esperando
+    hasta que se suelta el lock y responde este error (comprobado en etcd 3.5.35)."""
+    expired = {"error": "mutex: session is expired", "code": 2, "message": "mutex: session is expired"}
+
+    async with make_etcd(lambda request: httpx.Response(500, json=expired)) as etcd:
+        with pytest.raises(LeaseNotFound):
+            await etcd.lock(NAME, LEASE, wait_s=5)
 
 
 @pytest.mark.anyio

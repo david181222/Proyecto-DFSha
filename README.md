@@ -15,8 +15,9 @@ Equipo: Edwin Vélez, José Díaz y Santiago Martínez.
 | 08 | `ls`, `stat`, `mkdir`, `rmdir` y `rm` sobre etcd (`src/metaserver/fs.py`) |
 | 09 | Almacén de bloques del DataNode: cifrado con AES-256-GCM, escritura atómica y borrado por fecha (`src/datanode/storage.py`), y `PUT /internal/blocks/{user}/{hash}` |
 | 10 | Verificación de pases en el DataNode (`src/datanode/auth.py`) y `GET /blocks/{hash}`. `PUT /blocks/{hash}` ya verifica el pase y responde 501 hasta la tarea 14 |
+| 11 | Locks: `POST /locks` con espera en la fila de etcd y renovación del lease mientras espera, `PUT` y `DELETE /locks/{lock_id}` (`src/metaserver/locks.py`) |
 
-Las demás rutas siguen siendo *stubs* que responden 501: locks, lectura y subida de archivos, lista de MetaServers, `/admin/status`, la API interna del MetaServer y el envío de un bloque al primario (`PUT /blocks/{hash}`). La validación de parámetros funciona en todas. Un DataNode ya guarda y entrega bloques cifrados, pero todavía no hay réplicas ni latidos. Las decisiones de comportamiento de las tareas 06 a 08 están en la sección 11 de `docs/contratos.md`, y las de las tareas 09 y 10, en la sección 12.
+Las demás rutas siguen siendo *stubs* que responden 501: lectura y subida de archivos, lista de MetaServers, `/admin/status`, la API interna del MetaServer y el envío de un bloque al primario (`PUT /blocks/{hash}`). La validación de parámetros funciona en todas. Un DataNode ya guarda y entrega bloques cifrados, pero todavía no hay réplicas ni latidos. Las decisiones de comportamiento de las tareas 06 a 08 están en la sección 11 de `docs/contratos.md`, y las de las tareas 09 y 10, en la sección 12. Las de la tarea 11 no cambian el contrato y están en el docstring de `src/metaserver/locks.py`.
 
 Código del MetaServer:
 
@@ -27,6 +28,7 @@ Código del MetaServer:
 | `deps.py` | Lo que se crea al arrancar (configuración, cliente de etcd, clave del JWT) y se entrega a las rutas |
 | `auth.py` | Contraseñas Argon2id, `require_user` y `require_admin`, usuarios y primer administrador |
 | `fs.py` | Directorios y archivos del espacio de cada usuario |
+| `locks.py` | Locks de escritura: pedir (con espera y renovación), renovar, liberar y `resolve_lock` |
 | `keys.py` | Formato de las claves de etcd (sección 8 del contrato) |
 
 Código del DataNode:

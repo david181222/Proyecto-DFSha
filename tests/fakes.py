@@ -3,8 +3,10 @@
 Se importan con `from fakes import ...` (pytest pone la carpeta tests/ en sys.path).
 """
 
+import asyncio
 import base64
 import operator
+import time
 from contextlib import contextmanager
 from typing import Any
 
@@ -28,19 +30,26 @@ def _unb64(text: str) -> bytes:
 
 
 class FakeEtcd:
-    """etcd en memoria con la interfaz de metaserver.etcd.Etcd: lo que usan las tareas 07 y 08.
+    """etcd en memoria con la interfaz de metaserver.etcd.Etcd: lo que usan las tareas 07, 08 y 11.
 
     Imita lo que importa de etcd: una revisión global que sube con cada escritura;
     create_revision, mod_revision y version por clave; leases que al revocarse borran sus
-    claves; transacciones atómicas con comparación de rango; y el intento de lock sin espera.
+    claves; transacciones atómicas con comparación de rango; y el lock, con espera o sin ella.
     Las comparaciones y operaciones de txn llegan como las arman compare(), op_put(),
     op_delete() y op_range(), en el formato de la pasarela (base64), y aquí se decodifican.
+
+    No lleva la cuenta del tiempo: un lease no vence solo. Para simular que venció, una
+    prueba lo revoca.
     """
+
+    LOCK_POLL_S = 0.01  # cada cuánto revisa la fila un intento de lock que espera
 
     def __init__(self) -> None:
         self.kvs: dict[str, KeyValue] = {}
         self.revision = 1  # como un etcd recién creado
         self.leases: set[int] = set()
+        self.ttls: dict[int, int] = {}  # TTL con que se pidió cada lease
+        self.keepalives: list[int] = []  # el lease de cada llamada a lease_keepalive, en orden
         self.next_lease = 0x694D8A1C2E3B4F00
         self.closed = False
 
@@ -153,7 +162,15 @@ class FakeEtcd:
     async def lease_grant(self, ttl_s: int) -> int:
         self.next_lease += 1
         self.leases.add(self.next_lease)
+        self.ttls[self.next_lease] = ttl_s
         return self.next_lease
+
+    async def lease_keepalive(self, lease_id: int) -> int:
+        """Anota la llamada en keepalives y devuelve el TTL con que se pidió el lease."""
+        self.keepalives.append(lease_id)
+        if lease_id not in self.leases:
+            raise LeaseNotFound(f"el lease {lease_id:x} ya no existe")
+        return self.ttls[lease_id]
 
     async def lease_revoke(self, lease_id: int) -> None:
         if lease_id not in self.leases:
@@ -164,17 +181,33 @@ class FakeEtcd:
             del self.kvs[key]
         self.revision += 1 if attached else 0
 
+    async def lease_keys(self, lease_id: int) -> list[str] | None:
+        if lease_id not in self.leases:
+            return None
+        return sorted(key for key, kv in self.kvs.items() if kv.lease == lease_id)
+
     async def lock(self, name: str, lease_id: int, *, wait_s: float) -> str | None:
-        """Solo el intento sin espera, el mismo algoritmo de Etcd.lock con wait_s == 0."""
-        if wait_s != 0:
-            raise NotImplementedError("FakeEtcd solo hace el intento de lock sin espera")
+        """La misma fila que Etcd.lock: la clave {name}/{lease en hex}, y entra la más antigua.
+
+        Revisa la fila cada LOCK_POLL_S hasta que su clave es la más antigua (devuelve la
+        clave), hasta que se agota wait_s (borra su clave y devuelve None, como etcd cuando se
+        corta la espera) o hasta que su clave desaparece porque el lease se revocó (LeaseNotFound,
+        como "mutex: session is expired"; etcd lo responde recién cuando se suelta el lock).
+        Con wait_s == 0 revisa una sola vez: es el mismo algoritmo de Etcd.lock sin espera.
+        """
         key = lock_key(name, lease_id)
         await self.put(key, b"", lease=lease_id)
-        waiting = await self.get_prefix(f"{name}/", keys_only=True)
-        if min(waiting, key=lambda kv: kv.create_revision).key == key:
-            return key
-        await self.delete(key)
-        return None
+        deadline = time.monotonic() + wait_s
+        while True:
+            waiting = await self.get_prefix(f"{name}/", keys_only=True)
+            if key not in [kv.key for kv in waiting]:
+                raise LeaseNotFound("mutex: session is expired")
+            if min(waiting, key=lambda kv: kv.create_revision).key == key:
+                return key
+            if time.monotonic() >= deadline:
+                await self.delete(key)
+                return None
+            await asyncio.sleep(self.LOCK_POLL_S)
 
 
 # --- API pública del MetaServer con FakeEtcd ---
