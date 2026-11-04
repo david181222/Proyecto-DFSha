@@ -1,8 +1,8 @@
-"""Recursos del DataNode: configuración y almacén de bloques.
+"""Recursos del DataNode: configuración, almacén de bloques y clave de los pases.
 
 Se crean en el lifespan de cada app, al arrancar el servidor, nunca al importar: así
 las pruebas y scripts/export_openapi.py importan las apps sin secretos ni carpeta de
-datos. Las rutas los reciben como dependencias (SettingsDep y StoreDep), y las pruebas
+datos. Las rutas los reciben como dependencias (SettingsDep, StoreDep y PassKeyDep), y las pruebas
 los reemplazan con app.dependency_overrides.
 """
 
@@ -34,13 +34,14 @@ def shared_store(settings: Settings) -> BlockStore:
 
 @asynccontextmanager
 async def open_resources(app: FastAPI):
-    """Lee la configuración y la clave de cifrado y abre el almacén.
+    """Lee la configuración, la clave de cifrado y la de los pases, y abre el almacén.
 
     Si falta un archivo, la app no arranca: el proceso termina y Docker lo reinicia.
     """
     settings = Settings()
     app.state.settings = settings
     app.state.store = shared_store(settings)
+    app.state.pass_key = read_secret(settings.pass_key_file)
     yield
 
 
@@ -52,5 +53,10 @@ def get_store(request: Request) -> BlockStore:
     return request.app.state.store
 
 
+def get_pass_key(request: Request) -> bytes:
+    return request.app.state.pass_key
+
+
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 StoreDep = Annotated[BlockStore, Depends(get_store)]
+PassKeyDep = Annotated[bytes, Depends(get_pass_key)]

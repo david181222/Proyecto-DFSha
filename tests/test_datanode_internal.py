@@ -86,6 +86,9 @@ def test_lifespan_opens_the_store_in_the_data_dir(tmp_path, monkeypatch):
     data_dir = tmp_path / "data"
     monkeypatch.setenv("DFS_DATA_DIR", str(data_dir))
     monkeypatch.setenv("DFS_NODE_KEY_FILE", str(key_file))
+    pass_key_file = tmp_path / "pass_key"
+    pass_key_file.write_bytes(os.urandom(32))
+    monkeypatch.setenv("DFS_PASS_KEY_FILE", str(pass_key_file))
     monkeypatch.setenv("DFS_NODE_ID", "dn2")
     monkeypatch.setattr(deps, "_store", None)  # el almacén compartido se crea de nuevo
 

@@ -17,6 +17,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, ValidationError
 
+from datanode import deps as datanode_deps
 from datanode.internal_api import app as datanode_internal
 from datanode.public_api import app as datanode_public
 from dfs_common import errors, models
@@ -185,9 +186,12 @@ def test_contratos_md_has_the_same_error_table():
 
 
 # Rutas que ya no son stubs, además de health. Sus pruebas están en tests/test_datanode_internal.py
-# (tarea 09).
+# (tarea 09) y tests/test_datanode_public.py (tarea 10). PUT /blocks/{hash} sigue siendo stub, pero
+# antes verifica el pase: su 501 se prueba con un pase válido en tests/test_datanode_public.py.
 IMPLEMENTED_ROUTES = {
     ("datanode-internal", "PUT", "/api/v1/internal/blocks/{user}/{hash}"),
+    ("datanode-public", "GET", "/api/v1/blocks/{hash}"),
+    ("datanode-public", "PUT", "/api/v1/blocks/{hash}"),
 }
 
 
@@ -237,7 +241,14 @@ def test_health_works(app):
 
 
 def test_invalid_parameters_respond_400_bad_request():
-    response = TestClient(datanode_public).get("/api/v1/blocks/no-es-un-hash")
+    # Sin lifespan no hay almacén ni clave de pases, y FastAPI resuelve las dependencias antes de
+    # validar la ruta. Con ellas reemplazadas, el hash inválido se rechaza antes de mirar el pase.
+    datanode_public.dependency_overrides[datanode_deps.get_pass_key] = lambda: b"k" * 32
+    datanode_public.dependency_overrides[datanode_deps.get_store] = lambda: None
+    try:
+        response = TestClient(datanode_public).get("/api/v1/blocks/no-es-un-hash")
+    finally:
+        datanode_public.dependency_overrides.clear()
     assert response.status_code == 400
     body = response.json()
     assert body["error"] == "E_BAD_REQUEST"
@@ -750,11 +761,11 @@ def test_internal_error_is_in_the_table():
 
 
 # Cada caso usa una ruta que sigue siendo stub: la prueba rompe el DFSError que lanza el stub.
-# La API interna del DataNode ya no tiene stubs: su caso está en tests/test_datanode_internal.py.
+# Las rutas de bloques del DataNode ya no son stubs: sus casos están en tests/test_datanode_internal.py
+# y tests/test_datanode_public.py.
 UNEXPECTED_ERROR_CASES = [
     ("metaserver.public_api", "GET", "/api/v1/fs/ls", {"params": {"path": "/docs"}}),
     ("metaserver.internal_api", "POST", "/api/v1/internal/register", {"json": first_example(models.RegisterRequest)}),
-    ("datanode.public_api", "GET", f"/api/v1/blocks/{HASH}", {}),
 ]
 
 

@@ -4,33 +4,23 @@ La usa el cliente para enviar y recibir bloques. Cada petición lleva el pase de
 bloque en Authorization: Bearer <pase>, firmado por el MetaServer (DA-10).
 El cuerpo de los bloques es binario (application/octet-stream, DA-06).
 
-Por ahora son stubs que responden 501 E_NOT_IMPLEMENTED; solo GET /health funciona.
-Correr en local: uvicorn datanode.public_api:app --port 9443
+Implementadas: health y GET /blocks/{hash} (tarea 10). PUT /blocks/{hash} verifica el
+pase y sigue respondiendo 501 E_NOT_IMPLEMENTED: guardar, reenviar a los secundarios y
+confirmar al MetaServer es la tarea 14.
+
+Al arrancar, el lifespan abre el almacén y lee la clave de los pases (datanode.deps).
+Se arranca con python -m datanode.
 """
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, Request, Response
-from fastapi.security import HTTPBearer
+from fastapi import APIRouter, Depends, Request, Response
 
+from datanode.auth import HashPath, require_pass
+from datanode.deps import StoreDep, open_resources
 from dfs_common.app import BINARY_REQUEST_BODY, create_app
 from dfs_common.errors import DFSError, ErrorCode, error_responses
-from dfs_common.models import SHA256_PATTERN, BlockStoredResponse, HealthResponse
-
-# auto_error=False: si falta el pase, la ruta (no FastAPI) responde 401 E_AUTH.
-pass_auth = HTTPBearer(
-    auto_error=False,
-    scheme_name="BlockPass",
-    bearerFormat="base64url(json).base64url(hmac_sha256(json))",
-    description=(
-        "Pase del bloque que entrega el MetaServer, en Authorization: Bearer (DA-10). Ausente o vencido "
-        "(con firma válida): 401 E_AUTH. Mal formado, con firma inválida, de otro hash o de otra "
-        "operación: 403 E_FORBIDDEN."
-    ),
-)
-PASS = [Depends(pass_auth)]
-
-HashPath = Annotated[str, Path(pattern=SHA256_PATTERN, description="SHA-256 del bloque sin cifrar (DA-02).")]
+from dfs_common.models import BlockPass, BlockStoredResponse, HealthResponse
 
 router = APIRouter(prefix="/api/v1")
 
@@ -54,7 +44,7 @@ class BlockBytesResponse(Response):
         "coincide con el hash; 422 E_REPLICAS si no logró W copias o si la confirmación dice que no "
         "cubren 2 zonas; ambos reintentables con realloc. DA-03, DA-04, DA-09."
     ),
-    dependencies=PASS,
+    dependencies=[Depends(require_pass("w"))],
     openapi_extra=BINARY_REQUEST_BODY,
     responses=error_responses(
         ErrorCode.E_BAD_REQUEST,
@@ -82,7 +72,6 @@ async def put_block(hash: HashPath, request: Request):
         "Si no tiene el bloque, 404 E_NOT_FOUND, y también lo reporta en bad_blocks: el MetaServer "
         "creía que la copia estaba aquí. DA-09, DA-10, DA-12."
     ),
-    dependencies=PASS,
     responses={
         200: {
             "description": "Contenido del bloque, sin cifrar.",
@@ -91,8 +80,9 @@ async def put_block(hash: HashPath, request: Request):
         **error_responses(ErrorCode.E_AUTH, ErrorCode.E_FORBIDDEN, ErrorCode.E_NOT_FOUND, ErrorCode.E_CHECKSUM),
     },
 )
-async def get_block(hash: HashPath):
-    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+def get_block(hash: HashPath, block_pass: Annotated[BlockPass, Depends(require_pass("r"))], store: StoreDep):
+    # El bloque se busca en la carpeta del usuario del pase: cada usuario solo ve sus bloques.
+    return BlockBytesResponse(content=store.read(block_pass.user, hash))
 
 
 @router.get(
@@ -109,5 +99,6 @@ def health():
 app = create_app(
     title="DFSha · DataNode público",
     description="API pública del DataNode (puerto 9443, HTTPS). Contrato legible en docs/contratos.md.",
+    lifespan=open_resources,
 )
 app.include_router(router)
