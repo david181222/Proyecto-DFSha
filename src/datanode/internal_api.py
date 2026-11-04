@@ -4,15 +4,17 @@ Recibe copias de otros DataNodes: la réplica que envía el primario (DA-04) o l
 copia de una re-réplica (DA-12). El bloque viaja sin cifrar dentro de mTLS y
 cada DataNode lo cifra con su propia clave (DA-09). Prefijo /api/v1/internal.
 
-Por ahora es un stub que responde 501 E_NOT_IMPLEMENTED.
+La ruta no revisa certificados: uvicorn exige mTLS en este puerto (dfs_common.serve).
+Al arrancar, el lifespan abre el almacén de bloques (datanode.deps).
 """
 
 from typing import Annotated
 
 from fastapi import APIRouter, Path, Request
 
+from datanode.deps import SettingsDep, StoreDep, open_resources
 from dfs_common.app import BINARY_REQUEST_BODY, create_app
-from dfs_common.errors import DFSError, ErrorCode, error_responses
+from dfs_common.errors import ErrorCode, error_responses
 from dfs_common.models import SHA256_PATTERN, USER_PATTERN, ReplicaStoredResponse
 
 router = APIRouter(prefix="/api/v1/internal", tags=["internal"])
@@ -35,13 +37,17 @@ async def put_replica(
     user: Annotated[str, Path(pattern=USER_PATTERN, description="Dueño del bloque.")],
     hash: Annotated[str, Path(pattern=SHA256_PATTERN, description="SHA-256 del bloque sin cifrar (DA-02).")],
     request: Request,
+    store: StoreDep,
+    settings: SettingsDep,
 ):
-    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+    await store.write(user, hash, request.stream())
+    return ReplicaStoredResponse(hash=hash, node_id=settings.node_id)
 
 
 app = create_app(
     title="DFSha · DataNode interno",
     description="API interna del DataNode (puerto 9444, mTLS). Contrato legible en docs/contratos.md.",
     mtls=True,
+    lifespan=open_resources,
 )
 app.include_router(router)

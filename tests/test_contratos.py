@@ -184,14 +184,27 @@ def test_contratos_md_has_the_same_error_table():
         assert row in CONTRATOS_MD, f"falta o cambió la fila de {code} en docs/contratos.md"
 
 
+# Rutas que ya no son stubs, además de health. Sus pruebas están en tests/test_datanode_internal.py
+# (tarea 09).
+IMPLEMENTED_ROUTES = {
+    ("datanode-internal", "PUT", "/api/v1/internal/blocks/{user}/{hash}"),
+}
+
+
 def stub_operations() -> list:
-    """Todas las rutas menos health, que es la única implementada."""
+    """Todas las rutas menos health y las ya implementadas."""
     return [
         pytest.param(name, method, path, id=f"{name} {method} {path}")
         for name, app in APPS.items()
         for method, path in sorted(documented_routes(app))
-        if not path.endswith("/health")
+        if not path.endswith("/health") and (name, method, path) not in IMPLEMENTED_ROUTES
     ]
+
+
+def test_implemented_routes_exist():
+    """Si una ruta de IMPLEMENTED_ROUTES cambia de nombre, la prueba de los stubs no debe saltársela en silencio."""
+    for name, method, path in IMPLEMENTED_ROUTES:
+        assert (method, path) in documented_routes(APPS[name])
 
 
 @pytest.mark.parametrize(("name", "method", "path"), stub_operations())
@@ -736,15 +749,18 @@ def test_internal_error_is_in_the_table():
     assert "| 500 | `E_INTERNAL` | error inesperado del servidor | false |" in CONTRATOS_MD
 
 
+# Cada caso usa una ruta que sigue siendo stub: la prueba rompe el DFSError que lanza el stub.
+# La API interna del DataNode ya no tiene stubs: su caso está en tests/test_datanode_internal.py.
 UNEXPECTED_ERROR_CASES = [
     ("metaserver.public_api", "GET", "/api/v1/fs/ls", {"params": {"path": "/docs"}}),
     ("metaserver.internal_api", "POST", "/api/v1/internal/register", {"json": first_example(models.RegisterRequest)}),
     ("datanode.public_api", "GET", f"/api/v1/blocks/{HASH}", {}),
-    ("datanode.internal_api", "PUT", f"/api/v1/internal/blocks/ana/{HASH}", {"content": b"bloque"}),
 ]
 
 
-@pytest.mark.parametrize(("module_name", "method", "url", "request_args"), UNEXPECTED_ERROR_CASES, ids=APPS)
+@pytest.mark.parametrize(
+    ("module_name", "method", "url", "request_args"), UNEXPECTED_ERROR_CASES, ids=[case[0] for case in UNEXPECTED_ERROR_CASES]
+)
 def test_unexpected_exception_responds_500_internal(module_name, method, url, request_args, monkeypatch, caplog):
     module = importlib.import_module(module_name)
 
