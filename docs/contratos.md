@@ -1,6 +1,6 @@
 # Contratos de DFSha
 
-Versión legible del contrato entre el cliente, el MetaServer y el DataNode (tareas 01 a 02d; la sección 11 agrega cómo se comportan las rutas implementadas en las tareas 06 a 08). El código manda y este documento lo resume:
+Versión legible del contrato entre el cliente, el MetaServer y el DataNode (tareas 01 a 02d; la sección 11 agrega cómo se comportan las rutas implementadas en las tareas 06 a 08, y la sección 12, las de las tareas 09 y 10). El código manda y este documento lo resume:
 
 | Qué | Dónde |
 |---|---|
@@ -31,7 +31,7 @@ Versión legible del contrato entre el cliente, el MetaServer y el DataNode (tar
 - **Versiones:** empiezan en 1 y suben de a una con cada commit. `base_version: 0` significa que el archivo todavía no existe.
 - **Instantes:** enteros en milisegundos desde epoch (UTC), en la API y en etcd: `modified_at`, `created_at`, `replaced_at`, `touched_at` y `written_before_ms`. El cliente los formatea al mostrarlos. La excepción es `exp`, que va en segundos tanto en el JWT (lo exige su estándar, que también pone `iat` en segundos) como en el pase.
 - **Errores:** siempre `{error, message, retryable}` (sección 6).
-- **Stubs:** mientras una ruta no esté implementada responde 501 `E_NOT_IMPLEMENTED`. Ya funcionan `GET /api/v1/health` de las dos APIs públicas, y en el MetaServer público `POST /auth/login`, `POST /admin/users` y las cinco rutas `/fs` (tareas 07 y 08). La validación de parámetros funciona en todas las rutas: una petición inválida recibe 400 antes de llegar al stub.
+- **Stubs:** mientras una ruta no esté implementada responde 501 `E_NOT_IMPLEMENTED`. Ya funcionan `GET /api/v1/health` de las dos APIs públicas, en el MetaServer público `POST /auth/login`, `POST /admin/users` y las cinco rutas `/fs` (tareas 07 y 08), y en el DataNode `PUT /internal/blocks/{user}/{hash}` y `GET /blocks/{hash}` (tareas 09 y 10). `PUT /blocks/{hash}` ya verifica el pase y después responde 501 hasta la tarea 14. La validación de parámetros funciona en todas las rutas: una petición inválida recibe 400 antes de llegar al stub.
 - **Orden de las comprobaciones:** en las rutas con JWT, primero se comprueba el token y después los parámetros. Una petición sin token, o con un token inválido, responde 401 `E_AUTH` aunque además traiga una ruta inválida; con un token válido, la ruta inválida responde 400. Así, quien no se autenticó no puede usar la API para averiguar qué rutas son válidas.
 
 Todos los ejemplos cuentan la misma historia: la usuaria `ana` reemplaza `/docs/informe.pdf` (versión 3 → 4; 20 MiB en tres bloques: 8 MiB, 8 MiB y 4 MiB) en el despliegue de DA-13. Las IP son de ejemplo; las reales las escribe el script de despliegue. El instante `1793628090000` es el 2 de noviembre de 2026 a las 14:01:30 UTC.
@@ -1252,3 +1252,14 @@ Las tareas 06 (cliente de etcd, `src/metaserver/etcd.py`), 07 (login, usuarios y
    - si `admin` ya existe, no se cambia su contraseña aunque `DFS_ADMIN_PASSWORD_FILE` traiga otra: el MetaServer lo avisa en su log (pasa si se regeneran los secretos y etcd conserva sus datos);
    - si el archivo de la contraseña está vacío, el MetaServer no arranca.
 8. **Arranque y etcd.** Si etcd no responde mientras se crea el primer administrador, el proceso termina y Docker lo reinicia (`restart: unless-stopped`); cuando etcd vuelve, arranca solo. Sin `DFS_ADMIN_PASSWORD_FILE`, el MetaServer arranca sin consultar etcd, y sus rutas responden 503 mientras etcd no esté disponible.
+
+## 12. Decisiones de las tareas 09 y 10
+
+Las tareas 09 (almacén de bloques, `src/datanode/storage.py`) y 10 (verificación de pases, `src/datanode/auth.py`) no cambian rutas, mensajes ni errores. Precisan cómo se comportan:
+
+1. **Archivo en disco.** `{DFS_DATA_DIR}/{user}/{hash}` con `nonce (12 bytes) + texto cifrado + tag (16 bytes)`: AES-256-GCM con la clave de `DFS_NODE_KEY_FILE` y `"{user}/{hash}"` como dato asociado. Un archivo copiado con otro nombre o a la carpeta de otro usuario no se descifra y da 422. El bloque se escribe por partes en `{hash}.tmp-{uuid}`, en la misma carpeta, y se publica con `fsync` y `os.replace`. Los temporales que deja una caída se borran al arrancar.
+2. **Siempre se reescribe.** Un bloque que ya existe se vuelve a escribir, con un nonce nuevo. Su fecha de modificación es el instante de escritura que compara la orden `delete` (sección 7.3), así que una copia subida de nuevo sobrevive a una orden que llegue tarde.
+3. **Bloques faltantes o dañados.** `GET /blocks/{hash}` anota en los `bad_blocks` del siguiente latido tanto la copia dañada (422, y la borra) como la que no está (404), sin repetir bloques (sección 4).
+4. **Copia dañada que se reescribe a la vez.** Reemplazar y borrar un bloque pasan bajo un mismo candado, y la lectura solo borra la copia dañada si sigue siendo la que leyó: si un `PUT` la reemplazó mientras tanto, la copia nueva se queda. La orden `delete` también se aplica bajo ese candado.
+5. **400 antes que 401 en el DataNode público.** A diferencia de las rutas con JWT del MetaServer (sección 11, punto 1), un hash inválido en la ruta da 400 antes de mirar el pase. Después, el pase se comprueba en el orden de la sección 7.2. Sin el encabezado `Authorization`, o si no es `Bearer`: 401 `E_AUTH`.
+6. **Arranque.** Las APIs pública e interna del DataNode corren en el mismo proceso y comparten el almacén. Al arrancar leen `DFS_NODE_KEY_FILE` (32 bytes) y `DFS_PASS_KEY_FILE`; si falta alguno, el proceso termina y Docker lo reinicia.

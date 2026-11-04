@@ -1,11 +1,13 @@
 """Pruebas de la tarea 09: almacén de bloques del DataNode (src/datanode/storage.py)."""
 
+import asyncio
 import errno
 import hashlib
 import os
 import shutil
 
 import pytest
+from cryptography.exceptions import InvalidTag
 
 from datanode import storage
 from datanode.storage import BlockStore
@@ -160,6 +162,26 @@ async def test_changed_byte_is_422_deletes_the_copy_and_is_reported_once(store, 
     assert error_code(lambda: store.read("ana", sha(SMALL))) == ErrorCode.E_NOT_FOUND
     assert store.pop_bad_blocks() == [("ana", sha(SMALL))]
     assert store.pop_bad_blocks() == []
+
+
+def test_damaged_copy_replaced_while_reading_is_not_deleted(store, tmp_path, monkeypatch):
+    asyncio.run(store.write("ana", sha(SMALL), chunks_of(SMALL)))
+
+    class RewrittenDuringRead:
+        """Otro PUT reescribe el bloque justo después de que read leyó la copia vieja, que estaba dañada."""
+
+        def __init__(self, key):
+            pass
+
+        def decrypt(self, nonce, data, associated_data):
+            asyncio.run(store.write("ana", sha(SMALL), chunks_of(SMALL)))
+            raise InvalidTag
+
+    monkeypatch.setattr(storage, "AESGCM", RewrittenDuringRead)
+    assert error_code(lambda: store.read("ana", sha(SMALL))) == ErrorCode.E_CHECKSUM
+    monkeypatch.undo()
+
+    assert store.read("ana", sha(SMALL)) == SMALL  # la copia nueva sigue ahí
 
 
 def test_missing_block_is_404_and_reported(store):

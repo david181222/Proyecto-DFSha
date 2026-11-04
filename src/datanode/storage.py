@@ -7,6 +7,10 @@ otro nombre no se descifra (DA-09).
 
 El bloque se escribe por partes en un temporal de la misma carpeta y se renombra al
 final, así que nunca queda publicado a medias y el texto en claro nunca toca el disco.
+
+Reemplazar o borrar un bloque pasa siempre bajo un mismo candado. read corre en un hilo
+del threadpool de FastAPI y write en el bucle de eventos: sin el candado, read podría
+borrar una copia dañada justo después de que write la reemplazó por una buena.
 """
 
 import errno
@@ -14,6 +18,7 @@ import hashlib
 import os
 import re
 import shutil
+import threading
 import uuid
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -40,6 +45,7 @@ class BlockStore:
         # Bloques que faltaron o estaban dañados al leerlos; el latido los manda en bad_blocks.
         # Un dict sin valores guarda el orden de llegada y no repite (user, hash).
         self._bad_blocks: dict[tuple[str, str], None] = {}
+        self._lock = threading.Lock()
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self._remove_temporaries()
 
@@ -75,7 +81,8 @@ class BlockStore:
                 out.write(encryptor.tag)
                 out.flush()
                 os.fsync(out.fileno())
-            os.replace(tmp, path)
+            with self._lock:
+                os.replace(tmp, path)
         except BaseException as exc:
             tmp.unlink(missing_ok=True)
             if isinstance(exc, OSError) and exc.errno == errno.ENOSPC:
@@ -90,7 +97,9 @@ class BlockStore:
         """
         path = self._path(user, hash)
         try:
-            stored = path.read_bytes()
+            with open(path, "rb") as stored_file:
+                identity = self._identity(os.fstat(stored_file.fileno()))
+                stored = stored_file.read()
         except FileNotFoundError:
             self._bad_blocks[(user, hash)] = None
             raise DFSError(ErrorCode.E_NOT_FOUND, "el bloque no está en este DataNode") from None
@@ -102,7 +111,14 @@ class BlockStore:
         except (InvalidTag, ValueError):
             data = None
         if data is None or hashlib.sha256(data).hexdigest() != hash:
-            path.unlink(missing_ok=True)
+            # Solo se borra si sigue siendo la copia que se leyó: si un write la reemplazó
+            # mientras tanto, la nueva está bien y se queda.
+            with self._lock:
+                try:
+                    if self._identity(path.stat()) == identity:
+                        path.unlink()
+                except FileNotFoundError:
+                    pass
             self._bad_blocks[(user, hash)] = None
             raise DFSError(ErrorCode.E_CHECKSUM, "la copia guardada está dañada")
         return data
@@ -110,14 +126,15 @@ class BlockStore:
     def delete_if_older(self, user: str, hash: str, written_before_ms: int) -> bool:
         """Borra el bloque solo si se escribió antes de written_before_ms; dice si lo borró (DA-02)."""
         path = self._path(user, hash)
-        try:
-            written_ms = path.stat().st_mtime_ns // 1_000_000
-        except FileNotFoundError:
-            return False
-        if written_ms >= written_before_ms:
-            return False
-        path.unlink(missing_ok=True)
-        return True
+        with self._lock:
+            try:
+                written_ms = path.stat().st_mtime_ns // 1_000_000
+            except FileNotFoundError:
+                return False
+            if written_ms >= written_before_ms:
+                return False
+            path.unlink(missing_ok=True)
+            return True
 
     def pop_bad_blocks(self) -> list[tuple[str, str]]:
         """Entrega los bloques dañados o faltantes anotados desde la última vez y vacía la lista."""
@@ -136,6 +153,11 @@ class BlockStore:
         if not re.fullmatch(USER_PATTERN, user) or not re.fullmatch(SHA256_PATTERN, hash):
             raise DFSError(ErrorCode.E_BAD_REQUEST, "usuario o hash inválido")
         return self.data_dir / user / hash
+
+    @staticmethod
+    def _identity(stat: os.stat_result) -> tuple[int, int, int]:
+        """Distingue una copia de la que la reemplazó: os.replace deja un archivo nuevo (otro inodo)."""
+        return (stat.st_ino, stat.st_mtime_ns, stat.st_size)
 
     @staticmethod
     def _associated_data(user: str, hash: str) -> bytes:
