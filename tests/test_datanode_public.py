@@ -2,12 +2,15 @@
 
 Los pases se arman con sign_pass y una clave de prueba. El almacén y la clave se
 reemplazan con app.dependency_overrides, sin correr el lifespan; la última prueba
-corre el lifespan de verdad con archivos temporales.
+corre el lifespan de verdad con archivos temporales. El PUT completo (tarea 14) está en
+tests/test_datanode_put.py.
 """
 
 import asyncio
 import hashlib
+import importlib.util
 import time
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -144,13 +147,7 @@ def test_damaged_copy_is_422_and_goes_to_bad_blocks(client, store, tmp_path):
     assert store.pop_bad_blocks() == [("ana", HASH)]
 
 
-# --- PUT: verifica el pase y sigue siendo stub (tarea 14) ---
-
-
-def test_put_with_a_valid_write_pass_reaches_the_stub(client):
-    response = client.put(URL, content=BLOCK, headers=bearer(make_pass(op="w")))
-    assert response.status_code == 501
-    assert response.json()["error"] == "E_NOT_IMPLEMENTED"
+# --- PUT: el pase se comprueba antes que todo lo demás (el resto, en tests/test_datanode_put.py) ---
 
 
 def test_put_without_pass_is_401(client):
@@ -178,6 +175,15 @@ def test_unexpected_exception_responds_500_internal(caplog):
 
 
 def test_lifespan_reads_the_pass_key_and_opens_the_store(tmp_path, monkeypatch):
+    # Los clientes HTTP del primario (tarea 14) usan el certificado del nodo: uno real de la CA de prueba.
+    spec = importlib.util.spec_from_file_location("gen_secrets", Path(__file__).parents[1] / "scripts" / "gen_secrets.py")
+    gen_secrets = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gen_secrets)
+    secrets = tmp_path / "secrets"
+    gen_secrets.main(["--out", str(secrets), "--nodes", "dn1=10.88.0.31"])
+    monkeypatch.setenv("DFS_TLS_CA_FILE", str(secrets / "ca.crt"))
+    monkeypatch.setenv("DFS_TLS_CERT_FILE", str(secrets / "dn1" / "tls.crt"))
+    monkeypatch.setenv("DFS_TLS_KEY_FILE", str(secrets / "dn1" / "tls.key"))
     data_dir = tmp_path / "data"
     store_with_ana_block(data_dir)
     node_key_file = tmp_path / "node_key"
@@ -191,7 +197,10 @@ def test_lifespan_reads_the_pass_key_and_opens_the_store(tmp_path, monkeypatch):
 
     with TestClient(app) as client:
         response = client.get(URL, headers=bearer(make_pass()))
+        peers, meta_client = app.state.peers, app.state.meta_client
 
     assert response.status_code == 200
     assert response.content == BLOCK
+    assert peers.is_closed  # al apagar, el lifespan cierra los clientes HTTP
+    assert meta_client._client.is_closed
 
