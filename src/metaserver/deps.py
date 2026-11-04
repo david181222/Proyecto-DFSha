@@ -1,9 +1,10 @@
-"""Recursos del MetaServer: configuración, cliente de etcd y clave del JWT.
+"""Recursos del MetaServer: configuración, cliente de etcd, clave del JWT y clave de los pases.
 
-Se crean en el lifespan de la app, al arrancar el servidor, nunca al importar: así
-las pruebas y scripts/export_openapi.py importan las apps sin secretos ni etcd. Las
-rutas los reciben como dependencias (SettingsDep, EtcdDep y JwtSecretDep), y las
-pruebas los reemplazan con app.dependency_overrides.
+Se crean en el lifespan de cada app (pública e interna), al arrancar el servidor, nunca al
+importar: así las pruebas y scripts/export_openapi.py importan las apps sin secretos ni
+etcd. Cada app tiene su propio cliente de etcd. Las rutas los reciben como dependencias
+(SettingsDep, EtcdDep, JwtSecretDep y PassKeyDep), y las pruebas los reemplazan con
+app.dependency_overrides.
 """
 
 from contextlib import asynccontextmanager
@@ -25,13 +26,15 @@ def connect_etcd(settings: Settings) -> Etcd:
 
 @asynccontextmanager
 async def open_resources(app: FastAPI):
-    """Lee la configuración y la clave del JWT y conecta con etcd; al apagar, cierra la conexión.
+    """Lee la configuración, la clave del JWT y la de los pases, y conecta con etcd; al apagar,
+    cierra la conexión.
 
     Si falta un archivo, la app no arranca: el proceso termina y Docker lo reinicia.
     """
     settings = Settings()
     app.state.settings = settings
     app.state.jwt_secret = read_secret(settings.jwt_secret_file)
+    app.state.pass_key = read_secret(settings.pass_key_file)
     app.state.etcd = connect_etcd(settings)
     try:
         yield
@@ -51,6 +54,11 @@ def get_jwt_secret(request: Request) -> bytes:
     return request.app.state.jwt_secret
 
 
+def get_pass_key(request: Request) -> bytes:
+    return request.app.state.pass_key
+
+
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 EtcdDep = Annotated[Etcd, Depends(get_etcd)]
 JwtSecretDep = Annotated[bytes, Depends(get_jwt_secret)]
+PassKeyDep = Annotated[bytes, Depends(get_pass_key)]

@@ -3,10 +3,18 @@
 Solo la usan los DataNodes, con certificado de la CA propia (DA-06, DA-11):
 registro, latidos con sus órdenes y confirmación de bloques. Prefijo /api/v1/internal.
 
-Por ahora son stubs que responden 501 E_NOT_IMPLEMENTED.
+Como todos los nodos tienen un certificado de la misma CA, cada llamada se ata además a su
+nodo por la IP de origen de la conexión (docs/contratos.md, sección 3): si no es la del
+nodo, 403 E_FORBIDDEN.
+
+Implementada: POST /blocks/confirm (tarea 12). register y heartbeat son stubs que
+responden 501 E_NOT_IMPLEMENTED hasta la tarea 13.
+
+Al arrancar, el lifespan abre sus propios recursos, entre ellos su cliente de etcd
+(metaserver.deps). Las tareas de fondo del proceso van en el lifespan de la app pública.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from dfs_common.app import create_app
 from dfs_common.errors import DFSError, ErrorCode, error_responses
@@ -18,8 +26,18 @@ from dfs_common.models import (
     RegisterRequest,
     RegisterResponse,
 )
+from metaserver import blocks
+from metaserver.deps import EtcdDep, open_resources
+from metaserver.nodes import Node, by_id, live_nodes
 
 router = APIRouter(prefix="/api/v1/internal", tags=["internal"])
+
+
+def check_source_ip(request: Request, node: Node | None, node_id: str) -> None:
+    """La llamada debe venir de la IP del nodo; si el nodo no está vivo o la IP no es la suya, 403."""
+    source = request.client.host if request.client else ""
+    if node is None or node.ip != source:
+        raise DFSError(ErrorCode.E_FORBIDDEN, f"la llamada no viene de la IP de {node_id or 'ningún nodo'}")
 
 
 @router.post(
@@ -76,13 +94,18 @@ def heartbeat(body: HeartbeatRequest):
         ErrorCode.E_BAD_REQUEST, ErrorCode.E_FORBIDDEN, ErrorCode.E_REPLICAS, ErrorCode.E_UNAVAILABLE
     ),
 )
-def confirm_block(body: BlockConfirmRequest):
-    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+async def confirm_block(body: BlockConfirmRequest, request: Request, etcd: EtcdDep):
+    nodes = by_id(await live_nodes(etcd))
+    primary = body.stored_on[0] if body.stored_on else ""
+    check_source_ip(request, nodes.get(primary), primary)
+    await blocks.confirm_block(etcd, body.user, body.hash, body.size, body.stored_on, nodes)
+    return OkResponse(ok=True)
 
 
 app = create_app(
     title="DFSha · MetaServer interno",
     description="API interna del MetaServer (puerto 8444, mTLS). Contrato legible en docs/contratos.md.",
     mtls=True,
+    lifespan=open_resources,
 )
 app.include_router(router)

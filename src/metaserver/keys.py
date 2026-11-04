@@ -26,3 +26,17 @@ def manifest_key(file_id: str, version: int) -> str:
 def lock_name(user: str, path: str) -> str:
     """Nombre del lock de etcd de un archivo; cada intento queda en {lock_name}/{lock_id} (DA-08)."""
     return f"/locks/{user}{path}"
+
+
+def block_key(user: str, hash: str) -> str:
+    """Bloque de un usuario: {size, stored_on, touched_at} (DA-02)."""
+    return f"/blocks/{user}/{hash}"
+
+
+def upload_key(upload_id: str) -> str:
+    """Subida en curso: {user, path, mode, base_version, block_size, lock_key, blocks, created_at}."""
+    return f"/uploads/{upload_id}"
+
+
+# DataNodes vivos: /nodes/dn/{node_id} = {ip, public_port, internal_port, zone, free_bytes}, atada a su lease.
+DATANODES_PREFIX = "/nodes/dn/"

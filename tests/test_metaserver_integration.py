@@ -1,9 +1,9 @@
-"""Rutas de las tareas 07, 08 y 11 contra un etcd real, con el lifespan de verdad.
+"""Rutas de las tareas 07, 08, 11 y 12 contra un etcd real, con el lifespan de verdad.
 
-Las pruebas de tests/test_auth.py, tests/test_fs.py y tests/test_locks.py usan FakeEtcd.
-Estas confirman que con etcd pasa lo mismo: transacciones de creación y de rango,
-revisiones, leases, el intento de lock sin espera, la fila del servicio de lock y la
-renovación del lease mientras se espera en ella. Se saltan sin la variable DFS_TEST_ETCD;
+Las pruebas de tests/test_auth.py, tests/test_fs.py, tests/test_locks.py y las de la tarea 12
+usan FakeEtcd. Estas confirman que con etcd pasa lo mismo: transacciones de creación y de
+rango, revisiones, leases, el intento de lock sin espera, la fila del servicio de lock, la
+renovación del lease mientras se espera en ella, y la subida completa con su commit. Se saltan sin la variable DFS_TEST_ETCD;
 cómo levantar el etcd está en el docstring de tests/test_etcd_integration.py.
 
 Cada prueba usa un usuario y un file_id propios y borra sus claves al terminar.
@@ -22,9 +22,10 @@ from dfs_common.errors import DFSError, ErrorCode
 from dfs_common.security import verify_jwt
 from metaserver import auth, deps, locks
 from metaserver.etcd import Etcd, LeaseNotFound, lease_from_hex, lease_hex, op_delete, prefix_end
+from metaserver.internal_api import app as metaserver_internal
 from metaserver.public_api import app as metaserver_public
 
-from fakes import JWT_SECRET, bearer
+from fakes import DA13, JWT_SECRET, PASS_KEY, bearer
 
 ENDPOINT = os.environ.get("DFS_TEST_ETCD", "")
 pytestmark = pytest.mark.skipif(not ENDPOINT, reason="sin DFS_TEST_ETCD no hay un etcd real contra el cual probar")
@@ -52,19 +53,27 @@ async def delete_prefixes(etcd: Etcd, *prefixes: str) -> None:
 def user():
     name = f"t{uuid.uuid4().hex[:12]}"
     yield name
-    with_etcd(lambda etcd: delete_prefixes(etcd, f"/ns/{name}/", f"/locks/{name}/", f"/users/{name}"))
+    prefixes = [f"/ns/{name}/", f"/locks/{name}/", f"/users/{name}", f"/blocks/{name}/"]
+    with_etcd(lambda etcd: delete_prefixes(etcd, *prefixes))
 
 
 @pytest.fixture
-def client(monkeypatch, tmp_path):
-    """La API pública arrancada con su lifespan, conectada al etcd real (sin TLS) y sin admin inicial."""
+def environment(monkeypatch, tmp_path):
+    """Variables y secretos para arrancar las APIs del MetaServer con el etcd real (sin TLS) y sin admin inicial."""
     for key in list(os.environ):
         if key.upper().startswith("DFS_"):
             monkeypatch.delenv(key)
     monkeypatch.chdir(tmp_path)
     (tmp_path / "jwt_secret").write_bytes(JWT_SECRET)
     monkeypatch.setenv("DFS_JWT_SECRET_FILE", str(tmp_path / "jwt_secret"))
+    (tmp_path / "pass_key").write_bytes(PASS_KEY)
+    monkeypatch.setenv("DFS_PASS_KEY_FILE", str(tmp_path / "pass_key"))
     monkeypatch.setattr(deps, "connect_etcd", lambda settings: Etcd([ENDPOINT]))
+
+
+@pytest.fixture
+def client(environment):
+    """La API pública arrancada con su lifespan."""
     with TestClient(metaserver_public) as client:
         yield client
 
@@ -236,3 +245,101 @@ def test_a_waiting_attempt_whose_lease_expires_is_423(user):
     with pytest.raises(DFSError) as caught:
         with_etcd(lambda etcd: wait_behind_a_holder(etcd, user, renew_s=60))
     assert caught.value.code == ErrorCode.E_LOCKED
+
+
+# --- Subidas (tarea 12) ---
+
+MIB = 1024 * 1024
+H0 = "6ce5a55b446b43e4e935c44695a9a09f161e8e87d1ff2359adebc5f9ee5ee5cf"
+H1 = "b64bb9046f61749097db060781bcbbba317c08ff0ac378e9aed9a6d18217e449"
+
+
+@pytest.fixture
+def datanodes():
+    """Los 4 DataNodes de DA-13, vivos en el etcd real mientras dura la prueba (atados a un lease)."""
+
+    async def register(etcd):
+        lease_id = await etcd.lease_grant(LEASE_S)
+        for node_id, (ip, zone) in DA13.items():
+            value = {"ip": ip, "public_port": 9443, "internal_port": 9444, "zone": zone, "free_bytes": 15 * 1024**3}
+            await etcd.put(f"/nodes/dn/{node_id}", value, lease=lease_id)
+        return lease_id
+
+    async def revoke(etcd):
+        with contextlib.suppress(LeaseNotFound):
+            await etcd.lease_revoke(lease_id)
+
+    lease_id = with_etcd(register)
+    yield
+    with_etcd(revoke)
+
+
+def confirm_from_the_primary(item: dict, size: int, user: str):
+    """El primario confirma su bloque en la API interna (con su lifespan), desde su IP, con una copia en dn1 o dn2."""
+    primary = item["primary"]["node_id"]
+    stored_on = [primary, "dn1" if primary != "dn1" else "dn2"]
+    body = {"user": user, "hash": item["hash"], "size": size, "stored_on": stored_on}
+    with TestClient(metaserver_internal, client=(DA13[primary][0], 50000)) as internal:
+        return internal.post("/api/v1/internal/blocks/confirm", json=body)
+
+
+def test_upload_confirm_commit_and_read(client, user, datanodes):
+    path = "/docs/informe.pdf"
+    sizes = {H0: 8 * MIB, H1: MIB}
+    blocks = [{"index": 0, "hash": H0, "size": 8 * MIB}, {"index": 1, "hash": H1, "size": MIB}]
+    headers = bearer(user)
+    assert client.post("/api/v1/fs/mkdir", json={"path": "/docs"}, headers=headers).status_code == 200
+    lock_id = client.post("/api/v1/locks", json={"path": path, "wait_s": 0}, headers=headers).json()["lock_id"]
+
+    def reserve(base_version):
+        body = {"path": path, "mode": "w", "base_version": base_version, "block_size": 8 * MIB, "lock_id": lock_id}
+        return client.post("/api/v1/uploads", json={**body, "blocks": blocks}, headers=headers).json()
+
+    def commit(upload_id, base_version):
+        body = {"base_version": base_version, "lock_id": lock_id, "hashes": [H0, H1], "size": 9 * MIB}
+        return client.post(f"/api/v1/uploads/{upload_id}/commit", json=body, headers=headers).json()
+
+    file_id = None
+    try:
+        first = reserve(0)
+        assert first["present"] == [] and len(first["missing"]) == 2
+        # La subida quedó atada al lease del lock.
+        lease_keys = with_etcd(lambda etcd: etcd.lease_keys(lease_from_hex(lock_id)))
+        assert f"/uploads/{first['upload_id']}" in lease_keys
+        for item in first["missing"]:
+            assert confirm_from_the_primary(item, sizes[item["hash"]], user).json() == {"ok": True}
+        assert commit(first["upload_id"], 0) == {"path": path, "version": 1}
+
+        # La misma lista otra vez: todo está presente, y el commit pasa a la versión 2 (con base_version > 0).
+        second = reserve(1)
+        assert (second["present"], second["missing"]) == ([0, 1], [])
+        assert commit(second["upload_id"], 1) == {"path": path, "version": 2}
+
+        read = client.get("/api/v1/files/blocks", params={"path": path}, headers=headers).json()
+        assert read["version"] == 2 and [block["size"] for block in read["blocks"]] == [8 * MIB, MIB]
+        assert all(len(block["replicas"]) == 2 for block in read["blocks"])
+        retained = client.get("/api/v1/files/blocks", params={"path": path, "version": 1}, headers=headers)
+        assert retained.json()["version"] == 1  # la versión 1 sigue retenida (DA-14)
+        file_id = with_etcd(lambda etcd: etcd.get(f"/ns/{user}{path}")).json()["file_id"]
+        assert with_etcd(lambda etcd: etcd.get_prefix("/uploads/", keys_only=True)) == []
+    finally:
+        client.delete(f"/api/v1/locks/{lock_id}", headers=headers)
+        if file_id:
+            with_etcd(lambda etcd: delete_prefixes(etcd, f"/files/{file_id}/"))
+
+
+def test_a_commit_that_loses_its_parent_is_404(client, user, datanodes):
+    """La regla de creación del commit (sección 8) con el etcd real: el padre se borra antes de publicar."""
+    path = "/docs/nuevo.txt"
+    headers = bearer(user)
+    client.post("/api/v1/fs/mkdir", json={"path": "/docs"}, headers=headers)
+    lock_id = client.post("/api/v1/locks", json={"path": path, "wait_s": 0}, headers=headers).json()["lock_id"]
+    body = {"path": path, "mode": "w", "base_version": 0, "block_size": 8 * MIB, "lock_id": lock_id, "blocks": []}
+    upload_id = client.post("/api/v1/uploads", json=body, headers=headers).json()["upload_id"]
+    try:
+        assert client.delete("/api/v1/fs/rmdir", params={"path": "/docs"}, headers=headers).status_code == 200
+        commit = {"base_version": 0, "lock_id": lock_id, "hashes": [], "size": 0}
+        response = client.post(f"/api/v1/uploads/{upload_id}/commit", json=commit, headers=headers)
+        assert response.status_code == 404 and response.json()["error"] == "E_NOT_FOUND"
+    finally:
+        client.delete(f"/api/v1/locks/{lock_id}", headers=headers)

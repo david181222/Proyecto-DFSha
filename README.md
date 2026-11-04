@@ -16,8 +16,9 @@ Equipo: Edwin Vélez, José Díaz y Santiago Martínez.
 | 09 | Almacén de bloques del DataNode: cifrado con AES-256-GCM, escritura atómica y borrado por fecha (`src/datanode/storage.py`), y `PUT /internal/blocks/{user}/{hash}` |
 | 10 | Verificación de pases en el DataNode (`src/datanode/auth.py`) y `GET /blocks/{hash}`. `PUT /blocks/{hash}` ya verifica el pase y responde 501 hasta la tarea 14 |
 | 11 | Locks: `POST /locks` con espera en la fila de etcd y renovación del lease mientras espera, `PUT` y `DELETE /locks/{lock_id}` (`src/metaserver/locks.py`) |
+| 12 | Subidas: reserva con ubicación de réplicas en 2 zonas, `realloc`, commit con su transacción, `GET /files/blocks` y `POST /internal/blocks/confirm` (`uploads.py`, `placement.py`, `blocks.py` y `files.py`) |
 
-Las demás rutas siguen siendo *stubs* que responden 501: lectura y subida de archivos, lista de MetaServers, `/admin/status`, la API interna del MetaServer y el envío de un bloque al primario (`PUT /blocks/{hash}`). La validación de parámetros funciona en todas. Un DataNode ya guarda y entrega bloques cifrados, pero todavía no hay réplicas ni latidos. Las decisiones de comportamiento de las tareas 06 a 08 están en la sección 11 de `docs/contratos.md`, y las de las tareas 09 y 10, en la sección 12. Las de la tarea 11 no cambian el contrato y están en el docstring de `src/metaserver/locks.py`.
+Las demás rutas siguen siendo *stubs* que responden 501: lista de MetaServers, `/admin/status`, registro y latidos de la API interna del MetaServer, y el envío de un bloque al primario (`PUT /blocks/{hash}`). La validación de parámetros funciona en todas. Un DataNode ya guarda y entrega bloques cifrados, pero todavía no hay réplicas ni latidos. Las decisiones de comportamiento de las tareas 06 a 08 están en la sección 11 de `docs/contratos.md`, y las de las tareas 09 y 10, en la sección 12. Las de la tarea 11 no cambian el contrato y están en el docstring de `src/metaserver/locks.py`; los cambios y decisiones de la tarea 12, en la sección 13.
 
 Código del MetaServer:
 
@@ -29,6 +30,11 @@ Código del MetaServer:
 | `auth.py` | Contraseñas Argon2id, `require_user` y `require_admin`, usuarios y primer administrador |
 | `fs.py` | Directorios y archivos del espacio de cada usuario |
 | `locks.py` | Locks de escritura: pedir (con espera y renovación), renovar, liberar y `resolve_lock` |
+| `uploads.py` | Subidas: reserva, `realloc` y commit; `check_commit` valida la forma del archivo |
+| `placement.py` | `choose_nodes`: a qué DataNodes va cada bloque (DA-05) |
+| `blocks.py` | Claves de bloque: confirmación, `update_stored_on` y copias vivas en 2 zonas |
+| `files.py` | `GET /files/blocks`: manifiesto, réplicas vivas y pases de lectura |
+| `nodes.py` | DataNodes vivos de `/nodes/dn/` |
 | `keys.py` | Formato de las claves de etcd (sección 8 del contrato) |
 
 Código del DataNode:
