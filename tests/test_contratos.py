@@ -17,6 +17,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, ValidationError
 
+from datanode import deps as datanode_deps
 from datanode.internal_api import app as datanode_internal
 from datanode.public_api import app as datanode_public
 from dfs_common import errors, models
@@ -187,8 +188,10 @@ def test_contratos_md_has_the_same_error_table():
         assert row in CONTRATOS_MD, f"falta o cambió la fila de {code} en docs/contratos.md"
 
 
-# Rutas que ya no son stubs, además de health. Sus pruebas están en tests/test_auth.py (tarea 07)
-# y tests/test_fs.py (tarea 08).
+# Rutas que ya no son stubs, además de health. Sus pruebas están en tests/test_auth.py (tarea 07),
+# tests/test_fs.py (tarea 08), tests/test_datanode_internal.py (tarea 09) y tests/test_datanode_public.py
+# (tarea 10). PUT /blocks/{hash} sigue siendo stub, pero antes verifica el pase: su 501 se prueba con un
+# pase válido en tests/test_datanode_public.py.
 IMPLEMENTED_ROUTES = {
     ("metaserver-public", "POST", "/api/v1/auth/login"),
     ("metaserver-public", "POST", "/api/v1/admin/users"),
@@ -197,6 +200,9 @@ IMPLEMENTED_ROUTES = {
     ("metaserver-public", "POST", "/api/v1/fs/mkdir"),
     ("metaserver-public", "DELETE", "/api/v1/fs/rmdir"),
     ("metaserver-public", "DELETE", "/api/v1/fs/rm"),
+    ("datanode-internal", "PUT", "/api/v1/internal/blocks/{user}/{hash}"),
+    ("datanode-public", "GET", "/api/v1/blocks/{hash}"),
+    ("datanode-public", "PUT", "/api/v1/blocks/{hash}"),
 }
 
 
@@ -246,7 +252,14 @@ def test_health_works(app):
 
 
 def test_invalid_parameters_respond_400_bad_request():
-    response = TestClient(datanode_public).get("/api/v1/blocks/no-es-un-hash")
+    # Sin lifespan no hay almacén ni clave de pases, y FastAPI resuelve las dependencias antes de
+    # validar la ruta. Con ellas reemplazadas, el hash inválido se rechaza antes de mirar el pase.
+    datanode_public.dependency_overrides[datanode_deps.get_pass_key] = lambda: b"k" * 32
+    datanode_public.dependency_overrides[datanode_deps.get_store] = lambda: None
+    try:
+        response = TestClient(datanode_public).get("/api/v1/blocks/no-es-un-hash")
+    finally:
+        datanode_public.dependency_overrides.clear()
     assert response.status_code == 400
     body = response.json()
     assert body["error"] == "E_BAD_REQUEST"
@@ -771,15 +784,17 @@ def test_internal_error_is_in_the_table():
 
 
 # Cada caso usa una ruta que sigue siendo stub: la prueba rompe el DFSError que lanza el stub.
+# Las rutas de bloques del DataNode ya no son stubs: sus casos están en tests/test_datanode_internal.py
+# y tests/test_datanode_public.py.
 UNEXPECTED_ERROR_CASES = [
     ("metaserver.public_api", "GET", "/api/v1/files/blocks", {"params": {"path": "/docs/informe.pdf"}}),
     ("metaserver.internal_api", "POST", "/api/v1/internal/register", {"json": first_example(models.RegisterRequest)}),
-    ("datanode.public_api", "GET", f"/api/v1/blocks/{HASH}", {}),
-    ("datanode.internal_api", "PUT", f"/api/v1/internal/blocks/ana/{HASH}", {"content": b"bloque"}),
 ]
 
 
-@pytest.mark.parametrize(("module_name", "method", "url", "request_args"), UNEXPECTED_ERROR_CASES, ids=APPS)
+@pytest.mark.parametrize(
+    ("module_name", "method", "url", "request_args"), UNEXPECTED_ERROR_CASES, ids=[case[0] for case in UNEXPECTED_ERROR_CASES]
+)
 def test_unexpected_exception_responds_500_internal(module_name, method, url, request_args, monkeypatch, caplog):
     module = importlib.import_module(module_name)
 

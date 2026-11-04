@@ -13,8 +13,10 @@ Equipo: Edwin Vélez, José Díaz y Santiago Martínez.
 | 06 | Cliente de etcd del MetaServer por la pasarela HTTP/JSON, con mTLS y paso a otro nodo si uno no responde (`src/metaserver/etcd.py`) |
 | 07 | `POST /auth/login`, `POST /admin/users` y el primer administrador, que el MetaServer crea al arrancar (`src/metaserver/auth.py`) |
 | 08 | `ls`, `stat`, `mkdir`, `rmdir` y `rm` sobre etcd (`src/metaserver/fs.py`) |
+| 09 | Almacén de bloques del DataNode: cifrado con AES-256-GCM, escritura atómica y borrado por fecha (`src/datanode/storage.py`), y `PUT /internal/blocks/{user}/{hash}` |
+| 10 | Verificación de pases en el DataNode (`src/datanode/auth.py`) y `GET /blocks/{hash}`. `PUT /blocks/{hash}` ya verifica el pase y responde 501 hasta la tarea 14 |
 
-Las demás rutas siguen siendo *stubs* que responden 501: locks, lectura y subida de archivos, lista de MetaServers, `/admin/status`, la API interna del MetaServer y todo el DataNode. La validación de parámetros funciona en todas. Todavía no hay cifrado, réplicas ni almacenamiento de bloques. Las decisiones de comportamiento de las tareas 06 a 08 están en la sección 11 de `docs/contratos.md`.
+Las demás rutas siguen siendo *stubs* que responden 501: locks, lectura y subida de archivos, lista de MetaServers, `/admin/status`, la API interna del MetaServer y el envío de un bloque al primario (`PUT /blocks/{hash}`). La validación de parámetros funciona en todas. Un DataNode ya guarda y entrega bloques cifrados, pero todavía no hay réplicas ni latidos. Las decisiones de comportamiento de las tareas 06 a 08 están en la sección 11 de `docs/contratos.md`, y las de las tareas 09 y 10, en la sección 12.
 
 Código del MetaServer:
 
@@ -26,6 +28,15 @@ Código del MetaServer:
 | `auth.py` | Contraseñas Argon2id, `require_user` y `require_admin`, usuarios y primer administrador |
 | `fs.py` | Directorios y archivos del espacio de cada usuario |
 | `keys.py` | Formato de las claves de etcd (sección 8 del contrato) |
+
+Código del DataNode:
+
+| Módulo | Qué hace |
+|---|---|
+| `public_api.py` y `internal_api.py` | Rutas: el contrato HTTP. Las implementadas solo llaman a los módulos de abajo |
+| `deps.py` | Lo que se crea al arrancar (configuración, almacén y clave de los pases); las dos apps comparten el almacén |
+| `storage.py` | `BlockStore`: guarda, lee y borra bloques cifrados en `DFS_DATA_DIR` |
+| `auth.py` | `require_pass`: verifica el pase de bloque de cada petición |
 
 | Documento | Contenido |
 |---|---|
@@ -94,7 +105,7 @@ Sin TLS, en `http://127.0.0.1:8443/docs`:
 uvicorn metaserver.public_api:app --port 8443 --lifespan off
 ```
 
-`--lifespan off` hace falta porque, al arrancar, la API pública del MetaServer lee sus secretos y se conecta a etcd; sin esa opción, fuera de Docker no arranca. Así sirve `/docs` y `/health`; las rutas implementadas responden 500, porque no hay etcd ni clave del JWT. Las otras apps son `metaserver.internal_api:app`, `datanode.public_api:app` y `datanode.internal_api:app`.
+`--lifespan off` hace falta porque, al arrancar, la API pública del MetaServer lee sus secretos y se conecta a etcd, y las del DataNode leen sus claves y abren `DFS_DATA_DIR`; sin esa opción, fuera de Docker no arrancan. Así sirve `/docs` y `/health`; las rutas implementadas responden 500, porque no hay etcd, claves ni almacén. Las otras apps son `metaserver.internal_api:app`, `datanode.public_api:app` y `datanode.internal_api:app`.
 
 ## Correr en local
 
