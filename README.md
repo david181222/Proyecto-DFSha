@@ -55,6 +55,14 @@ Código del DataNode:
 | `meta_client.py` | `MetaClient`: descubre los MetaServers y les habla por mTLS |
 | `agent.py` | `NodeAgent`: registro, latidos y órdenes, en tareas de fondo del lifespan; `load_disk_id` lee o crea `DFS_DATA_DIR/.disk_id` |
 
+Código del cliente (`src/dfs_client/`):
+
+| Módulo | Qué hace |
+|---|---|
+| `api.py` | `DfsApi`: una llamada por ruta del contrato; descubre los MetaServers y pasa al siguiente si uno no responde |
+| `session.py` | Sesión en `~/.dfs/session.json` (usuario, JWT y directorio actual); `Session.resolve` arma la ruta absoluta |
+| `cli.py` | Comandos `dfs` con typer; el formato de la salida está en las funciones `format_*` |
+
 | Documento | Contenido |
 |---|---|
 | `docs/decisiones.md` | decisiones de arquitectura DA-01 a DA-16 |
@@ -188,7 +196,22 @@ printf '{"user":"admin","password":"%s"}' "$(cat secrets/local/admin_password)" 
 
 Con ese token se crean usuarios (`POST /api/v1/admin/users`), y con el token de cada usuario se usan las rutas `/fs` (`docs/contratos.md`, sección 2).
 
-**5. Apagar:**
+**5. Usar el cliente `dfs`.** Desde el contenedor `client`; la contraseña de `admin` está en `secrets/local/admin_password`. La sesión queda en `~/.dfs/session.json` del contenedor.
+
+```bash
+docker compose -f compose.local.yml exec client dfs login --user admin
+docker compose -f compose.local.yml exec client dfs useradd ana
+docker compose -f compose.local.yml exec client dfs status
+docker compose -f compose.local.yml exec client dfs login --user ana
+docker compose -f compose.local.yml exec client dfs mkdir /docs
+docker compose -f compose.local.yml exec client dfs cd /docs
+docker compose -f compose.local.yml exec client dfs ls
+docker compose -f compose.local.yml exec client dfs rmdir /docs
+```
+
+`dfs --help` lista los comandos, y `dfs COMANDO --help` explica cada uno.
+
+**6. Apagar:**
 
 ```bash
 docker compose -f compose.local.yml down      # conserva los datos de etcd y de los DataNodes

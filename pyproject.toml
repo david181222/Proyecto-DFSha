@@ -24,6 +24,10 @@ dependencies = [
     "typer>=0.12",
 ]
 
+[project.scripts]
+# Cliente de DFSha (tarea 16): dfs login, ls, cd, mkdir... (src/dfs_client/cli.py).
+dfs = "dfs_client.cli:app"
+
 [project.optional-dependencies]
 dev = ["pytest>=8"]
 
