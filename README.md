@@ -19,8 +19,9 @@ Equipo: Edwin Vélez, José Díaz y Santiago Martínez.
 | 12 | Subidas: reserva con ubicación de réplicas en 2 zonas, `realloc`, commit con su transacción, `GET /files/blocks` y `POST /internal/blocks/confirm` (`uploads.py`, `placement.py`, `blocks.py` y `files.py`) |
 | 13 | Registro y latidos de los DataNodes (`datanodes.py`), autorregistro de los MetaServers y `GET /cluster/metaservers` (`metaservers.py`), y `GET /admin/status` (`status.py`) |
 | 14 | `PUT /blocks/{hash}` completo: el primario reenvía a los secundarios y confirma al MetaServer (`src/datanode/primary.py`), con `MetaClient` (`src/datanode/meta_client.py`) |
+| 15 | El DataNode se registra, late y cumple las órdenes `copy` y `delete` del líder, y crea su `disk_id` (`src/datanode/agent.py`) |
 
-Ya funcionan todas las rutas de las cuatro APIs. Un DataNode guarda, entrega y reenvía bloques cifrados, pero todavía no se registra ni late (tarea 15). Las decisiones de comportamiento de las tareas 06 a 08 están en la sección 11 de `docs/contratos.md`, y las de las tareas 09 y 10, en la sección 12. Las de la tarea 11 no cambian el contrato y están en el docstring de `src/metaserver/locks.py`; los cambios y decisiones de la tarea 12, en la sección 13; y las de la tarea 13, en los docstrings de `datanodes.py`, `metaservers.py` y `status.py`.
+Ya funcionan todas las rutas de las cuatro APIs. Un DataNode guarda, entrega y reenvía bloques cifrados, se registra, late y cumple las órdenes del líder. Las decisiones de la tarea 15 están en el docstring de `src/datanode/agent.py`. Las decisiones de comportamiento de las tareas 06 a 08 están en la sección 11 de `docs/contratos.md`, y las de las tareas 09 y 10, en la sección 12. Las de la tarea 11 no cambian el contrato y están en el docstring de `src/metaserver/locks.py`; los cambios y decisiones de la tarea 12, en la sección 13; y las de la tarea 13, en los docstrings de `datanodes.py`, `metaservers.py` y `status.py`.
 
 Código del MetaServer:
 
@@ -52,6 +53,7 @@ Código del DataNode:
 | `auth.py` | `require_pass`: verifica el pase de bloque de cada petición |
 | `primary.py` | `PUT /blocks/{hash}`: guardar, reenviar a los secundarios y confirmar |
 | `meta_client.py` | `MetaClient`: descubre los MetaServers y les habla por mTLS |
+| `agent.py` | `NodeAgent`: registro, latidos y órdenes, en tareas de fondo del lifespan; `load_disk_id` lee o crea `DFS_DATA_DIR/.disk_id` |
 
 | Documento | Contenido |
 |---|---|
@@ -146,7 +148,7 @@ docker compose -f compose.local.yml up -d --build
 docker compose -f compose.local.yml ps
 ```
 
-Deben quedar 11 contenedores corriendo y los 3 etcd en `healthy`. Al arrancar, un MetaServer crea el usuario `admin` con la contraseña de `secrets/local/admin_password`; si etcd todavía no responde, el contenedor termina y Docker lo reinicia hasta que etcd esté listo. Los tiempos de DA-16 toman los valores normales; para usar los de prueba, crea un `.env` en la raíz (git lo ignora) con la columna "Pruebas" de `.env.example`, por ejemplo `DFS_RETENTION_S=60`.
+Deben quedar 11 contenedores corriendo y los 3 etcd en `healthy`. Al arrancar, un MetaServer crea el usuario `admin` con la contraseña de `secrets/local/admin_password`; si etcd todavía no responde, el contenedor termina y Docker lo reinicia hasta que etcd esté listo. Un DataNode no arranca si `DFS_DATA_DIR` tiene bloques pero no `.disk_id` (contrato, sección 3): si los volúmenes vienen de antes de la tarea 15, borra los datos con `down -v` (paso 5). Los tiempos de DA-16 toman los valores normales; para usar los de prueba, crea un `.env` en la raíz (git lo ignora) con la columna "Pruebas" de `.env.example`, por ejemplo `DFS_RETENTION_S=60`.
 
 **3. Comprobar TLS y mTLS:**
 

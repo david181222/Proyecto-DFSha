@@ -83,7 +83,7 @@ async def send_to_secondaries(
     """
     if not addresses:
         return []
-    sends = [asyncio.create_task(_send(peers, address, user, hash, data)) for address in addresses]
+    sends = [asyncio.create_task(send_block(peers, address, user, hash, data)) for address in addresses]
     done, pending = await asyncio.wait(sends, timeout=wait_s)
     for address, send in zip(addresses, sends):
         if send in pending:
@@ -94,8 +94,9 @@ async def send_to_secondaries(
     return [node_id for send in sends if send in done and (node_id := send.result()) is not None]
 
 
-async def _send(peers: httpx.AsyncClient, address: str, user: str, hash: str, data: bytes) -> str | None:
-    """PUT del bloque a un secundario. Devuelve su node_id si respondió 201, o None."""
+async def send_block(peers: httpx.AsyncClient, address: str, user: str, hash: str, data: bytes) -> str | None:
+    """PUT del bloque a la API interna de otro DataNode: un secundario (tarea 14) o el destino de una
+    orden copy (tarea 15, datanode.agent). Devuelve su node_id si respondió 201, o None."""
     url = f"https://{address}/api/v1/internal/blocks/{user}/{hash}"
     try:
         response = await peers.put(url, content=data)

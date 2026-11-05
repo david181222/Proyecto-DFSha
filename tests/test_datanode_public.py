@@ -174,7 +174,9 @@ def test_unexpected_exception_responds_500_internal(caplog):
     assert any(record.levelname == "ERROR" and record.exc_info for record in caplog.records)
 
 
-def test_lifespan_reads_the_pass_key_and_opens_the_store(tmp_path, monkeypatch):
+@pytest.fixture
+def lifespan_env(tmp_path, monkeypatch):
+    """Variables y archivos para correr el lifespan de verdad; devuelve DFS_DATA_DIR, con el bloque de ana."""
     # Los clientes HTTP del primario (tarea 14) usan el certificado del nodo: uno real de la CA de prueba.
     spec = importlib.util.spec_from_file_location("gen_secrets", Path(__file__).parents[1] / "scripts" / "gen_secrets.py")
     gen_secrets = importlib.util.module_from_spec(spec)
@@ -186,6 +188,7 @@ def test_lifespan_reads_the_pass_key_and_opens_the_store(tmp_path, monkeypatch):
     monkeypatch.setenv("DFS_TLS_KEY_FILE", str(secrets / "dn1" / "tls.key"))
     data_dir = tmp_path / "data"
     store_with_ana_block(data_dir)
+    (data_dir / ".disk_id").write_text("disco-dn1", encoding="utf-8")  # el disco ya tenía su disk_id (tarea 15)
     node_key_file = tmp_path / "node_key"
     node_key_file.write_bytes(NODE_KEY)
     pass_key_file = tmp_path / "pass_key"
@@ -193,14 +196,33 @@ def test_lifespan_reads_the_pass_key_and_opens_the_store(tmp_path, monkeypatch):
     monkeypatch.setenv("DFS_DATA_DIR", str(data_dir))
     monkeypatch.setenv("DFS_NODE_KEY_FILE", str(node_key_file))
     monkeypatch.setenv("DFS_PASS_KEY_FILE", str(pass_key_file))
+    monkeypatch.setenv("DFS_NODE_ID", "dn1")
+    monkeypatch.setenv("DFS_NODE_IP", "10.88.0.31")
     monkeypatch.setattr(deps, "_store", None)  # el almacén compartido se crea de nuevo
+    return data_dir
 
+
+def test_lifespan_reads_the_pass_key_and_opens_the_store(lifespan_env):
     with TestClient(app) as client:
         response = client.get(URL, headers=bearer(make_pass()))
         peers, meta_client = app.state.peers, app.state.meta_client
+        assert app.state.agent.disk_id == "disco-dn1"  # las tareas de fondo arrancaron (tarea 15)
 
     assert response.status_code == 200
     assert response.content == BLOCK
     assert peers.is_closed  # al apagar, el lifespan cierra los clientes HTTP
     assert meta_client._client.is_closed
 
+
+def test_lifespan_does_not_start_without_dfs_node_ip(lifespan_env, monkeypatch):
+    monkeypatch.delenv("DFS_NODE_IP")
+    with pytest.raises(ValueError, match="DFS_NODE_IP"):
+        with TestClient(app):
+            pass
+
+
+def test_lifespan_does_not_start_with_blocks_but_without_disk_id(lifespan_env):
+    (lifespan_env / ".disk_id").unlink()
+    with pytest.raises(RuntimeError, match=".disk_id"):
+        with TestClient(app):
+            pass
