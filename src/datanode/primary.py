@@ -10,7 +10,8 @@ PUT /blocks/{hash} hace, en este orden:
 3. stored_on es este nodo más esos secundarios. Si son menos de DFS_W: 422 E_REPLICAS, sin
    confirmar, y el cliente pide realloc;
 4. confirma al MetaServer, que comprueba las 2 zonas (422 E_REPLICAS si no las cubren) y escribe
-   /blocks/{user}/{hash}. Si ningún MetaServer responde: 503 E_UNAVAILABLE.
+   /blocks/{user}/{hash}. Cualquier otro error de la confirmación, o ningún MetaServer que
+   responda: 503 E_UNAVAILABLE, y el error original queda en el log.
 
 Copias huérfanas: las copias de un bloque que no se confirmó quedan en disco sin clave en etcd,
 y la limpieza, que recorre etcd, no las ve. Es una limitación aceptada que cuesta solo espacio
@@ -51,8 +52,25 @@ async def store_block(
     stored_on = [settings.node_id, *copies]
     if len(stored_on) < settings.w:
         raise DFSError(ErrorCode.E_REPLICAS, f"el bloque quedó en {len(stored_on)} nodos y DFS_W es {settings.w}")
-    await meta.post(CONFIRM_PATH, {"user": user, "hash": hash, "size": len(data), "stored_on": stored_on})
+    await _confirm(meta, {"user": user, "hash": hash, "size": len(data), "stored_on": stored_on})
     return BlockStoredResponse(hash=hash, stored_on=stored_on)
+
+
+async def _confirm(meta: MetaClient, block: dict) -> None:
+    """POST /internal/blocks/confirm. Un 422 E_REPLICAS (las copias no cubren 2 zonas) pasa tal cual.
+
+    Cualquier otro error (un 403 porque DFS_NODE_IP de este nodo está mal, un 500, ningún MetaServer
+    que responda) queda en el log con su código y su mensaje, y llega al cliente como 503
+    E_UNAVAILABLE: el cliente no puede corregirlo, pero sí reintentar con otros destinos (realloc
+    sin este primario). En el DataNode, un 403 quiere decir que el pase es inválido (sección 6).
+    """
+    try:
+        await meta.post(CONFIRM_PATH, block)
+    except DFSError as error:
+        if error.code == ErrorCode.E_REPLICAS:
+            raise
+        logger.error("confirm del bloque %s falló con %s: %s", block["hash"], error.code.value, error.message)
+        raise DFSError(ErrorCode.E_UNAVAILABLE, "no se pudo confirmar el bloque; pide otros destinos") from None
 
 
 async def send_to_secondaries(
@@ -71,6 +89,8 @@ async def send_to_secondaries(
         if send in pending:
             logger.warning("el secundario %s no respondió en %s s", address, wait_s)
             send.cancel()
+    # Se espera a que terminen de cancelarse, para no dejar envíos en curso después de responder.
+    await asyncio.gather(*pending, return_exceptions=True)
     return [node_id for send in sends if send in done and (node_id := send.result()) is not None]
 
 

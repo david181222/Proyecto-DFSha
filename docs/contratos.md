@@ -902,7 +902,7 @@ Cada petición lleva el pase del bloque en `Authorization: Bearer <pase>` (secci
 
 ### PUT /api/v1/blocks/{hash}
 
-El primario recibe el bloque en un archivo temporal, verifica el hash, lo cifra con AES-256-GCM, hace fsync y lo renombra. Luego lo reenvía sin cifrar a los secundarios del pase, a la vez, espera hasta `DFS_PRIMARY_WAIT_S`, confirma al MetaServer y responde con la lista de nodos donde quedó (DA-04, DA-09). Si el cuerpo pasa de `DFS_BLOCK_MIB` MiB, 400 `E_BAD_REQUEST`. Errores reintentables: 422 `E_CHECKSUM` si el contenido no coincide con el hash y 422 `E_REPLICAS` si no logró `DFS_W` copias o si `/internal/blocks/confirm` respondió que no cubren 2 zonas; en ambos casos el cliente pide `realloc`.
+El primario recibe el bloque en un archivo temporal, verifica el hash, lo cifra con AES-256-GCM, hace fsync y lo renombra. Luego lo reenvía sin cifrar a los secundarios del pase, a la vez, espera hasta `DFS_PRIMARY_WAIT_S`, confirma al MetaServer y responde con la lista de nodos donde quedó (DA-04, DA-09). Si el cuerpo pasa de `DFS_BLOCK_MIB` MiB, 400 `E_BAD_REQUEST`. Errores reintentables: 422 `E_CHECKSUM` si el contenido no coincide con el hash y 422 `E_REPLICAS` si no logró `DFS_W` copias o si `/internal/blocks/confirm` respondió que no cubren 2 zonas; en ambos casos el cliente pide `realloc`. Si la confirmación falla por cualquier otro motivo (por ejemplo, un 403 porque `DFS_NODE_IP` del primario está mal configurada) o ningún MetaServer responde, 503 `E_UNAVAILABLE`, también reintentable: el error original queda en el log del DataNode y el cliente pide `realloc` sin ese primario.
 
 ```http
 PUT /api/v1/blocks/b64bb9046f61749097db060781bcbbba317c08ff0ac378e9aed9a6d18217e449

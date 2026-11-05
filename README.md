@@ -17,8 +17,8 @@ Equipo: Edwin Vélez, José Díaz y Santiago Martínez.
 | 10 | Verificación de pases en el DataNode (`src/datanode/auth.py`) y `GET /blocks/{hash}`. `PUT /blocks/{hash}` ya verifica el pase y responde 501 hasta la tarea 14 |
 | 11 | Locks: `POST /locks` con espera en la fila de etcd y renovación del lease mientras espera, `PUT` y `DELETE /locks/{lock_id}` (`src/metaserver/locks.py`) |
 | 12 | Subidas: reserva con ubicación de réplicas en 2 zonas, `realloc`, commit con su transacción, `GET /files/blocks` y `POST /internal/blocks/confirm` (`uploads.py`, `placement.py`, `blocks.py` y `files.py`) |
-| 14 | `PUT /blocks/{hash}` completo: el primario reenvía a los secundarios y confirma al MetaServer (`src/datanode/primary.py`), con `MetaClient` (`src/datanode/meta_client.py`) |
 | 13 | Registro y latidos de los DataNodes (`datanodes.py`), autorregistro de los MetaServers y `GET /cluster/metaservers` (`metaservers.py`), y `GET /admin/status` (`status.py`) |
+| 14 | `PUT /blocks/{hash}` completo: el primario reenvía a los secundarios y confirma al MetaServer (`src/datanode/primary.py`), con `MetaClient` (`src/datanode/meta_client.py`) |
 
 Ya funcionan todas las rutas de las cuatro APIs. Un DataNode guarda, entrega y reenvía bloques cifrados, pero todavía no se registra ni late (tarea 15). Las decisiones de comportamiento de las tareas 06 a 08 están en la sección 11 de `docs/contratos.md`, y las de las tareas 09 y 10, en la sección 12. Las de la tarea 11 no cambian el contrato y están en el docstring de `src/metaserver/locks.py`; los cambios y decisiones de la tarea 12, en la sección 13; y las de la tarea 13, en los docstrings de `datanodes.py`, `metaservers.py` y `status.py`.
 

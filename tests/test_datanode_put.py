@@ -35,18 +35,32 @@ CONFIRM = "/api/v1/internal/blocks/confirm"
 
 
 class Secondaries:
-    """Responden 201 con su node_id, salvo los de failing (500) y los de slow (tardan slow_s)."""
+    """Responden 201 con su node_id, salvo los de failing (500) y los de slow (tardan slow_s).
+
+    Anotan cuántos envíos llegaron a estar en curso a la vez (most_at_once) y cuáles se
+    cancelaron antes de responder (cancelled).
+    """
 
     def __init__(self, failing=(), slow=(), slow_s=0.0):
         self.failing, self.slow, self.slow_s = set(failing), set(slow), slow_s
         self.received: dict[str, bytes] = {}
+        self.at_once = self.most_at_once = 0
+        self.cancelled: set[str] = set()
 
     async def handler(self, request: httpx.Request) -> httpx.Response:
         address = f"{request.url.host}:{request.url.port}"
         assert (request.method, request.url.path) == ("PUT", f"/api/v1/internal/blocks/ana/{HASH}")
         self.received[address] = request.content
-        if address in self.slow:
-            await asyncio.sleep(self.slow_s)
+        self.at_once += 1
+        self.most_at_once = max(self.most_at_once, self.at_once)
+        try:
+            if address in self.slow:
+                await asyncio.sleep(self.slow_s)
+        except asyncio.CancelledError:
+            self.cancelled.add(address)
+            raise
+        finally:
+            self.at_once -= 1
         if address in self.failing:
             return httpx.Response(500, json={"error": "E_INTERNAL", "message": "falló", "retryable": False})
         return httpx.Response(201, json={"hash": HASH, "node_id": SECONDARIES[address]})
@@ -152,22 +166,25 @@ def test_without_dfs_w_copies_it_is_422_and_does_not_confirm(store, failing, w):
     assert store.read("ana", HASH) == BLOCK  # copia huérfana: queda en disco sin clave en etcd (aceptado)
 
 
-def test_a_secondary_slower_than_dfs_primary_wait_s_does_not_count(store):
-    secondaries = Secondaries(slow={DN1}, slow_s=5)
+HANG_S = 10  # cota amplia: solo detecta un cuelgue, no mide la espera
+
+
+def test_a_secondary_slower_than_dfs_primary_wait_s_does_not_count_and_its_send_is_cancelled(store):
+    secondaries = Secondaries(slow={DN1}, slow_s=60)
     started = time.monotonic()
     with primary(store, secondaries=secondaries, primary_wait_s=1) as client:
         response = put(client)
     assert response.json()["stored_on"] == ["dn3", "dn4"]
-    assert time.monotonic() - started < 4  # no esperó los 5 s del lento
+    assert secondaries.cancelled == {DN1}  # se canceló y se esperó antes de responder
+    assert time.monotonic() - started < HANG_S
 
 
 def test_the_secondaries_are_sent_at_the_same_time(store):
-    secondaries = Secondaries(slow={DN4, DN1}, slow_s=1)
-    started = time.monotonic()
-    with primary(store, secondaries=secondaries, primary_wait_s=3) as client:
+    secondaries = Secondaries(slow={DN4, DN1}, slow_s=0.2)
+    with primary(store, secondaries=secondaries, primary_wait_s=5) as client:
         response = put(client)
     assert response.json()["stored_on"] == ["dn3", "dn4", "dn1"]
-    assert time.monotonic() - started < 1.9  # uno después del otro serían 2 s
+    assert secondaries.most_at_once == 2  # los dos envíos estuvieron en curso a la vez
 
 
 def test_if_confirm_answers_422_the_client_gets_that_422(store):
@@ -176,6 +193,19 @@ def test_if_confirm_answers_422_the_client_gets_that_422(store):
         response = put(client)
     assert response.status_code == 422
     assert response.json() == error
+
+
+@pytest.mark.parametrize(("status", "code"), [(403, "E_FORBIDDEN"), (500, "E_INTERNAL"), (400, "E_BAD_REQUEST")])
+def test_any_other_confirm_error_is_logged_and_reaches_the_client_as_503(store, status, code, caplog):
+    """Por ejemplo, un 403 porque DFS_NODE_IP del primario está mal: el cliente no puede arreglarlo,
+    pero con un 503 (reintentable) pide otros destinos sin este primario."""
+    error = {"error": code, "message": "mensaje original de confirm", "retryable": False}
+    with primary(store, meta=MetaServer(answer=httpx.Response(status, json=error))) as client:
+        response = put(client)
+    assert response.status_code == 503
+    assert response.json()["error"] == "E_UNAVAILABLE" and response.json()["retryable"] is True
+    logged = [record for record in caplog.records if record.levelname == "ERROR"]
+    assert any(code in record.getMessage() and "mensaje original de confirm" in record.getMessage() for record in logged)
 
 
 def test_if_no_metaserver_answers_it_is_503(store):
