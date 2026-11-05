@@ -2338,10 +2338,18 @@
             "title": "Size"
           },
           "file_sha256": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "description": "SHA-256 en hexadecimal minúscula (DA-02)"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "File Sha256",
-            "description": "SHA-256 en hexadecimal minúscula (DA-02)"
+            "description": "SHA-256 del archivo completo. put y open en w lo envían; a y rw envían null, porque calcularlo obligaría a descargar el archivo entero. Cada bloque ya se verifica por su hash"
           }
         },
         "type": "object",
@@ -2349,8 +2357,7 @@
           "base_version",
           "lock_id",
           "hashes",
-          "size",
-          "file_sha256"
+          "size"
         ],
         "title": "CommitRequest",
         "examples": [
@@ -2699,10 +2706,18 @@
             "description": "Tamaño de bloque con que se escribió (DFS_BLOCK_MIB)"
           },
           "file_sha256": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "description": "SHA-256 en hexadecimal minúscula (DA-02)"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "File Sha256",
-            "description": "SHA-256 del archivo completo"
+            "description": "SHA-256 del archivo completo; null si la versión se publicó con a o rw (el commit no lo trae)"
           },
           "blocks": {
             "items": {

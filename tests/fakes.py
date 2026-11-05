@@ -14,12 +14,22 @@ from fastapi.testclient import TestClient
 
 from dfs_common.config import Settings
 from dfs_common.security import create_jwt
-from metaserver.deps import get_etcd, get_jwt_secret, get_settings
+from metaserver.deps import get_etcd, get_jwt_secret, get_pass_key, get_settings
 from metaserver.etcd import KeyValue, LeaseNotFound, TxnResult, _encode, lock_key, prefix_end
+from metaserver.internal_api import app as metaserver_internal
 from metaserver.public_api import app as metaserver_public
 
 # 32 bytes, como los secretos que genera la tarea 04 (PyJWT avisa si la clave HS256 es corta).
 JWT_SECRET = b"j" * 32
+PASS_KEY = b"p" * 32
+
+# Los DataNodes de DA-13, con las IP y zonas de los ejemplos de docs/contratos.md.
+DA13 = {
+    "dn1": ("172.31.0.10", "us-east-1a"),
+    "dn2": ("172.31.16.10", "us-east-1b"),
+    "dn3": ("172.31.32.10", "us-east-1c"),
+    "dn4": ("172.31.16.20", "us-east-1b"),
+}
 
 _FIELDS = {"CREATE": "create_revision", "MOD": "mod_revision", "VERSION": "version"}
 _RESULTS = {"EQUAL": operator.eq, "NOT_EQUAL": operator.ne, "GREATER": operator.gt, "LESS": operator.lt}
@@ -209,6 +219,11 @@ class FakeEtcd:
                 return None
             await asyncio.sleep(self.LOCK_POLL_S)
 
+    async def leader(self, name: str) -> KeyValue | None:
+        """Como /v3/election/leader: el candidato más antiguo bajo {name}/ (menor create_revision), o None."""
+        candidates = await self.get_prefix(f"{name}/")
+        return min(candidates, key=lambda kv: kv.create_revision, default=None)
+
 
 # --- API pública del MetaServer con FakeEtcd ---
 
@@ -229,11 +244,63 @@ def public_client(etcd: FakeEtcd | None = None, **settings: Any):
     etcd = etcd if etcd is not None else FakeEtcd()
     config = Settings(_env_file=None, **settings)
     overrides = metaserver_public.dependency_overrides
-    overrides.update({get_etcd: lambda: etcd, get_settings: lambda: config, get_jwt_secret: lambda: JWT_SECRET})
+    overrides.update(
+        {
+            get_etcd: lambda: etcd,
+            get_settings: lambda: config,
+            get_jwt_secret: lambda: JWT_SECRET,
+            get_pass_key: lambda: PASS_KEY,
+        }
+    )
     try:
         yield TestClient(metaserver_public)
     finally:
         overrides.clear()
+
+
+@contextmanager
+def internal_client(etcd: FakeEtcd | None = None, *, ip: str = DA13["dn1"][0], **settings: Any):
+    """TestClient de la API interna del MetaServer con FakeEtcd, como si llamara un nodo desde ip.
+
+    La API interna compara la IP de origen con la del nodo (docs/contratos.md, sección 3);
+    TestClient la toma de client=(ip, puerto).
+    """
+    etcd = etcd if etcd is not None else FakeEtcd()
+    config = Settings(_env_file=None, **settings)
+    overrides = metaserver_internal.dependency_overrides
+    overrides.update({get_etcd: lambda: etcd, get_settings: lambda: config})
+    try:
+        yield TestClient(metaserver_internal, client=(ip, 50000))
+    finally:
+        overrides.clear()
+
+
+def add_node(
+    etcd: FakeEtcd,
+    node_id: str,
+    *,
+    ip: str | None = None,
+    zone: str | None = None,
+    free_bytes: int = 15032385536,
+    lease: int = 0,
+) -> None:
+    """Un DataNode vivo en /nodes/dn/ (sección 8); por defecto, con la IP y la zona de DA13."""
+    default_ip, default_zone = DA13.get(node_id, ("10.0.0.99", "us-east-1a"))
+    value = {
+        "ip": ip or default_ip,
+        "public_port": 9443,
+        "internal_port": 9444,
+        "zone": zone or default_zone,
+        "free_bytes": free_bytes,
+    }
+    etcd.seed(f"/nodes/dn/{node_id}", value, lease=lease)
+
+
+def add_block(
+    etcd: FakeEtcd, user: str, hash: str, *, stored_on: list[str], size: int = 8388608, touched_at: int = 1793628000000
+) -> None:
+    """Un bloque confirmado en /blocks/{user}/{hash} (sección 8)."""
+    etcd.seed(f"/blocks/{user}/{hash}", {"size": size, "stored_on": stored_on, "touched_at": touched_at})
 
 
 def add_dir(etcd: FakeEtcd, user: str, path: str, *, created_at: int = 1793178900000) -> None:

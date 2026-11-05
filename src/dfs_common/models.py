@@ -436,7 +436,9 @@ class FileBlocksResponse(BaseModel):
     version: int = Field(ge=1)
     size: int = Field(ge=0)
     block_size: int = Field(ge=1, description="Tamaño de bloque con que se escribió (DFS_BLOCK_MIB)")
-    file_sha256: Sha256Hex = Field(description="SHA-256 del archivo completo")
+    file_sha256: Sha256Hex | None = Field(
+        description="SHA-256 del archivo completo; null si la versión se publicó con a o rw (el commit no lo trae)"
+    )
     blocks: list[BlockLocation]
 
 
@@ -569,7 +571,11 @@ class CommitRequest(BaseModel):
     lock_id: str
     hashes: list[Sha256Hex] = Field(description="Todos los bloques de la versión nueva, en orden")
     size: int = Field(ge=0)
-    file_sha256: Sha256Hex
+    file_sha256: Sha256Hex | None = Field(
+        None,
+        description="SHA-256 del archivo completo. put y open en w lo envían; a y rw envían null, porque "
+        "calcularlo obligaría a descargar el archivo entero. Cada bloque ya se verifica por su hash",
+    )
 
 
 class CommitResponse(BaseModel):

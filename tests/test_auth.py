@@ -17,7 +17,7 @@ from dfs_common.security import create_jwt, verify_jwt
 from metaserver import auth, deps
 from metaserver.public_api import app as metaserver_public
 
-from fakes import JWT_SECRET, FakeEtcd, bearer, public_client
+from fakes import JWT_SECRET, PASS_KEY, FakeEtcd, bearer, public_client
 
 LOGIN = "/api/v1/auth/login"
 USERS = "/api/v1/admin/users"
@@ -154,6 +154,10 @@ def startup(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)  # sin .env: solo cuentan las variables de abajo
     (tmp_path / "jwt_secret").write_bytes(JWT_SECRET)
     monkeypatch.setenv("DFS_JWT_SECRET_FILE", str(tmp_path / "jwt_secret"))
+    (tmp_path / "pass_key").write_bytes(PASS_KEY)  # la reserva y la lectura firman pases (tarea 12)
+    monkeypatch.setenv("DFS_PASS_KEY_FILE", str(tmp_path / "pass_key"))
+    monkeypatch.setenv("DFS_NODE_ID", "meta1")  # el MetaServer se registra en /nodes/meta/ (tarea 13)
+    monkeypatch.setenv("DFS_NODE_IP", "172.31.0.10")
     etcd = FakeEtcd()
     monkeypatch.setattr(deps, "connect_etcd", lambda settings: etcd)
     return etcd, tmp_path

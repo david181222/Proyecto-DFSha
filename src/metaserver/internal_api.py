@@ -3,13 +3,20 @@
 Solo la usan los DataNodes, con certificado de la CA propia (DA-06, DA-11):
 registro, latidos con sus órdenes y confirmación de bloques. Prefijo /api/v1/internal.
 
-Por ahora son stubs que responden 501 E_NOT_IMPLEMENTED.
+Como todos los nodos tienen un certificado de la misma CA, cada llamada se ata además a su
+nodo por la IP de origen de la conexión (docs/contratos.md, sección 3): si no es la del
+nodo, 403 E_FORBIDDEN.
+
+Implementadas: POST /blocks/confirm (tarea 12), y register y heartbeat (tarea 13).
+
+Al arrancar, el lifespan abre sus propios recursos, entre ellos su cliente de etcd
+(metaserver.deps). Las tareas de fondo del proceso van en el lifespan de la app pública.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from dfs_common.app import create_app
-from dfs_common.errors import DFSError, ErrorCode, error_responses
+from dfs_common.errors import ErrorCode, error_responses
 from dfs_common.models import (
     BlockConfirmRequest,
     HeartbeatRequest,
@@ -18,8 +25,16 @@ from dfs_common.models import (
     RegisterRequest,
     RegisterResponse,
 )
+from metaserver import blocks, datanodes
+from metaserver.deps import EtcdDep, SettingsDep, open_resources
+from metaserver.nodes import by_id, check_source_ip, live_nodes
 
 router = APIRouter(prefix="/api/v1/internal", tags=["internal"])
+
+
+def source_ip(request: Request) -> str:
+    """La IP de origen de la conexión, la que compara check_source_ip."""
+    return request.client.host if request.client else ""
 
 
 @router.post(
@@ -36,8 +51,8 @@ router = APIRouter(prefix="/api/v1/internal", tags=["internal"])
     ),
     responses=error_responses(ErrorCode.E_BAD_REQUEST, ErrorCode.E_FORBIDDEN, ErrorCode.E_UNAVAILABLE),
 )
-def register(body: RegisterRequest):
-    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+async def register(body: RegisterRequest, request: Request, etcd: EtcdDep, settings: SettingsDep):
+    return await datanodes.register_datanode(etcd, body, source_ip(request), settings)
 
 
 @router.post(
@@ -56,8 +71,8 @@ def register(body: RegisterRequest):
         ErrorCode.E_BAD_REQUEST, ErrorCode.E_FORBIDDEN, ErrorCode.E_NOT_FOUND, ErrorCode.E_UNAVAILABLE
     ),
 )
-def heartbeat(body: HeartbeatRequest):
-    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+async def heartbeat(body: HeartbeatRequest, request: Request, etcd: EtcdDep):
+    return await datanodes.heartbeat(etcd, body, source_ip(request))
 
 
 @router.post(
@@ -76,13 +91,18 @@ def heartbeat(body: HeartbeatRequest):
         ErrorCode.E_BAD_REQUEST, ErrorCode.E_FORBIDDEN, ErrorCode.E_REPLICAS, ErrorCode.E_UNAVAILABLE
     ),
 )
-def confirm_block(body: BlockConfirmRequest):
-    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+async def confirm_block(body: BlockConfirmRequest, request: Request, etcd: EtcdDep):
+    nodes = by_id(await live_nodes(etcd))
+    primary = body.stored_on[0] if body.stored_on else ""  # el primario es el primero de stored_on
+    check_source_ip(source_ip(request), nodes[primary].ip if primary in nodes else None, primary)
+    await blocks.confirm_block(etcd, body.user, body.hash, body.size, body.stored_on, nodes)
+    return OkResponse(ok=True)
 
 
 app = create_app(
     title="DFSha · MetaServer interno",
     description="API interna del MetaServer (puerto 8444, mTLS). Contrato legible en docs/contratos.md.",
     mtls=True,
+    lifespan=open_resources,
 )
 app.include_router(router)

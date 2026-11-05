@@ -9,13 +9,17 @@ aquí no existe "ruta de otro usuario". 403 E_FORBIDDEN solo aparece en /admin s
 rol de administrador y con un lock_id o upload_id de otro usuario.
 
 Implementadas: health, login y POST /admin/users (tarea 07); ls, stat, mkdir, rmdir
-y rm (tarea 08); y pedir, renovar y liberar locks (tarea 11). Las demás son stubs:
-tienen su firma, su modelo de respuesta y sus errores, pero responden 501 E_NOT_IMPLEMENTED.
+y rm (tarea 08); pedir, renovar y liberar locks (tarea 11); GET /files/blocks y las
+subidas (tarea 12); y la lista de MetaServers y /admin/status (tarea 13).
 
-Al arrancar, el lifespan conecta con etcd, lee la clave del JWT y crea el primer
-administrador (metaserver.deps y metaserver.auth). Se arranca con python -m metaserver.
+Al arrancar, el lifespan conecta con etcd, lee la clave del JWT y la de los pases, crea el
+primer administrador y registra este MetaServer en /nodes/meta/, con una tarea de fondo que
+lo renueva (metaserver.deps, metaserver.auth y metaserver.metaservers). Se arranca con
+python -m metaserver.
 """
 
+import asyncio
+import contextlib
 from contextlib import asynccontextmanager
 from typing import Annotated
 
@@ -48,14 +52,10 @@ from dfs_common.models import (
     check_dfs_path,
 )
 from dfs_common.security import create_jwt
-from metaserver import auth, fs, locks
-from metaserver.auth import CurrentUser, jwt_auth, require_admin
-from metaserver.deps import EtcdDep, JwtSecretDep, SettingsDep, open_resources
+from metaserver import auth, files, fs, locks, metaservers, status, uploads
+from metaserver.auth import CurrentUser, require_admin
+from metaserver.deps import EtcdDep, JwtSecretDep, PassKeyDep, SettingsDep, open_resources
 from metaserver.keys import user_key
-
-# Las rutas que todavía son stubs declaran el JWT así; las implementadas lo exigen con
-# require_user o require_admin, que dependen del mismo jwt_auth (el OpenAPI no cambia).
-JWT = [Depends(jwt_auth)]
 
 # Una ruta inválida responde 400 E_BAD_REQUEST (check_dfs_path).
 PathQuery = Annotated[
@@ -120,8 +120,8 @@ async def login(body: LoginRequest, etcd: EtcdDep, settings: SettingsDep, secret
     ),
     responses=error_responses(ErrorCode.E_UNAVAILABLE),
 )
-def list_metaservers():
-    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+async def list_metaservers(etcd: EtcdDep):
+    return await metaservers.list_metaservers(etcd)
 
 
 # --- Sistema de archivos (RF1) ---
@@ -326,7 +326,6 @@ async def release_lock(lock_id: LockIdPath, claims: CurrentUser, etcd: EtcdDep):
         "ruta es un directorio, 400 E_BAD_REQUEST. Para renovar pases vencidos, se vuelve a pedir con la "
         "misma version. DA-05, DA-10, DA-11, DA-14."
     ),
-    dependencies=JWT,
     responses=error_responses(
         ErrorCode.E_BAD_REQUEST,
         ErrorCode.E_AUTH,
@@ -334,15 +333,19 @@ async def release_lock(lock_id: LockIdPath, claims: CurrentUser, etcd: EtcdDep):
         ErrorCode.E_UNAVAILABLE,
     ),
 )
-def file_blocks(
+async def file_blocks(
     path: PathQuery,
+    claims: CurrentUser,
+    etcd: EtcdDep,
+    settings: SettingsDep,
+    pass_key: PassKeyDep,
     version: Annotated[int | None, Query(ge=1, description="Versión a leer; si falta, la actual.")] = None,
     x_client_zone: Annotated[
         str | None,
         Header(alias="X-Client-Zone", description="Zona del cliente (DFS_ZONE).", examples=["us-east-1a"]),
     ] = None,
 ):
-    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+    return await files.file_blocks(etcd, claims.sub, path, version, x_client_zone, settings, pass_key)
 
 
 @router.post(
@@ -363,7 +366,6 @@ def file_blocks(
         "un archivo. a y rw sobre un archivo que no existe lo crean con base_version 0, igual que w. "
         "DA-02, DA-03, DA-04, DA-05, DA-14."
     ),
-    dependencies=JWT,
     responses=error_responses(
         ErrorCode.E_BAD_REQUEST,
         ErrorCode.E_AUTH,
@@ -375,8 +377,10 @@ def file_blocks(
         ErrorCode.E_NO_SPACE,
     ),
 )
-def create_upload(body: UploadRequest):
-    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+async def create_upload(
+    body: UploadRequest, claims: CurrentUser, etcd: EtcdDep, settings: SettingsDep, pass_key: PassKeyDep
+):
+    return await uploads.create_upload(etcd, claims.sub, body, settings, pass_key)
 
 
 @router.post(
@@ -391,7 +395,6 @@ def create_upload(body: UploadRequest):
         "menos DFS_W DataNodes vivos que cubran 2 zonas (sin contar exclude_nodes), 503 E_UNAVAILABLE. "
         "DA-04, DA-05, DA-10."
     ),
-    dependencies=JWT,
     responses=error_responses(
         ErrorCode.E_BAD_REQUEST,
         ErrorCode.E_AUTH,
@@ -401,8 +404,15 @@ def create_upload(body: UploadRequest):
         ErrorCode.E_NO_SPACE,
     ),
 )
-def realloc_upload(upload_id: UploadIdPath, body: ReallocRequest):
-    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+async def realloc_upload(
+    upload_id: UploadIdPath,
+    body: ReallocRequest,
+    claims: CurrentUser,
+    etcd: EtcdDep,
+    settings: SettingsDep,
+    pass_key: PassKeyDep,
+):
+    return await uploads.realloc_upload(etcd, claims.sub, upload_id, body, settings, pass_key)
 
 
 @router.post(
@@ -421,7 +431,6 @@ def realloc_upload(upload_id: UploadIdPath, body: ReallocRequest):
         "Con base_version 0 crea la entrada con una transacción que exige que la clave no exista y "
         "que el padre no haya cambiado (docs/contratos.md, sección 8). DA-02, DA-08, G1, G4."
     ),
-    dependencies=JWT,
     responses=error_responses(
         ErrorCode.E_BAD_REQUEST,
         ErrorCode.E_AUTH,
@@ -433,8 +442,8 @@ def realloc_upload(upload_id: UploadIdPath, body: ReallocRequest):
         ErrorCode.E_UNAVAILABLE,
     ),
 )
-def commit_upload(upload_id: UploadIdPath, body: CommitRequest):
-    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+async def commit_upload(upload_id: UploadIdPath, body: CommitRequest, claims: CurrentUser, etcd: EtcdDep):
+    return await uploads.commit_upload(etcd, claims.sub, upload_id, body)
 
 
 # --- Administración (DA-10, DA-16) ---
@@ -470,11 +479,11 @@ async def create_user(body: CreateUserRequest, etcd: EtcdDep):
         "Líder, MetaServers, DataNodes con zona y estado, bloques con menos de 3 copias y órdenes "
         "pendientes. Requiere JWT con admin=true. DA-16."
     ),
-    dependencies=JWT,
+    dependencies=[Depends(require_admin)],
     responses=error_responses(ErrorCode.E_AUTH, ErrorCode.E_FORBIDDEN, ErrorCode.E_UNAVAILABLE),
 )
-def admin_status():
-    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+async def admin_status(etcd: EtcdDep):
+    return await status.admin_status(etcd)
 
 
 @router.get(
@@ -490,10 +499,22 @@ def health():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Al arrancar: recursos (configuración, etcd, clave del JWT) y primer administrador (sección 2)."""
+    """Al arrancar: recursos, primer administrador (sección 2) y registro de este MetaServer (DA-11).
+
+    Si etcd no responde, el arranque falla y Docker reinicia el contenedor. La renovación del
+    registro es la tarea de fondo del proceso: va aquí y no en la app interna, para correr una vez.
+    """
     async with open_resources(app):
-        await auth.create_first_admin(app.state.etcd, app.state.settings)
-        yield
+        etcd, settings = app.state.etcd, app.state.settings
+        await auth.create_first_admin(etcd, settings)
+        lease_id = await metaservers.register_self(etcd, settings)
+        renewer = asyncio.create_task(metaservers.keep_registered(etcd, settings, lease_id, settings.heartbeat_s))
+        try:
+            yield
+        finally:
+            renewer.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await renewer
 
 
 app = create_app(

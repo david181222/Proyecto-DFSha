@@ -3,3 +3,6 @@
 *.sh text eol=lf
 Dockerfile text eol=lf
 *.yml text eol=lf
+# El OpenAPI exportado: scripts/export_openapi.py lo escribe con LF. Sin esta línea, Git para
+# Windows (core.autocrlf=true) lo deja con CRLF al hacer checkout y exportar muestra una diferencia falsa.
+docs/api/*.json text eol=lf

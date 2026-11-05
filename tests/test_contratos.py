@@ -29,7 +29,8 @@ from metaserver.etcd import EtcdError, LeaseNotFound, ResponseLost
 from metaserver.internal_api import app as metaserver_internal
 from metaserver.public_api import app as metaserver_public
 
-from fakes import bearer, public_client  # tests/fakes.py
+from fakes import JWT_SECRET, PASS_KEY, FakeEtcd, bearer, internal_client, public_client  # tests/fakes.py
+from metaserver import deps as metaserver_deps
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRATOS_MD = (ROOT / "docs" / "contratos.md").read_text(encoding="utf-8")
@@ -80,13 +81,6 @@ EXPECTED_ROUTES: dict[str, set[tuple[str, str]]] = {
 }
 
 HASH = "b64bb9046f61749097db060781bcbbba317c08ff0ac378e9aed9a6d18217e449"
-SAMPLE_PATH_PARAMS = {
-    "lock_id": "694d8a1c2e3b4f05",
-    "upload_id": "9b2f6d1e-4c3a-4e8b-9f1d-2a7c5e8b1d43",
-    "hash": HASH,
-    "user": "ana",
-}
-NOT_IMPLEMENTED = {"error": "E_NOT_IMPLEMENTED", "message": "ruta todavía sin implementar", "retryable": False}
 
 
 def documented_routes(app: FastAPI) -> set[tuple[str, str]]:
@@ -186,65 +180,6 @@ def test_contratos_md_has_the_same_error_table():
     for code, spec in ERROR_TABLE.items():
         row = f"| {spec.http_status} | `{code}` | {spec.description} | {str(spec.retryable).lower()} |"
         assert row in CONTRATOS_MD, f"falta o cambió la fila de {code} en docs/contratos.md"
-
-
-# Rutas que ya no son stubs, además de health. Sus pruebas están en tests/test_auth.py (tarea 07),
-# tests/test_fs.py (tarea 08), tests/test_datanode_internal.py (tarea 09), tests/test_datanode_public.py
-# (tarea 10) y tests/test_locks.py (tarea 11). PUT /blocks/{hash} sigue siendo stub, pero antes verifica
-# el pase: su 501 se prueba con un pase válido en tests/test_datanode_public.py.
-IMPLEMENTED_ROUTES = {
-    ("metaserver-public", "POST", "/api/v1/auth/login"),
-    ("metaserver-public", "POST", "/api/v1/admin/users"),
-    ("metaserver-public", "GET", "/api/v1/fs/ls"),
-    ("metaserver-public", "GET", "/api/v1/fs/stat"),
-    ("metaserver-public", "POST", "/api/v1/fs/mkdir"),
-    ("metaserver-public", "DELETE", "/api/v1/fs/rmdir"),
-    ("metaserver-public", "DELETE", "/api/v1/fs/rm"),
-    ("metaserver-public", "POST", "/api/v1/locks"),
-    ("metaserver-public", "PUT", "/api/v1/locks/{lock_id}"),
-    ("metaserver-public", "DELETE", "/api/v1/locks/{lock_id}"),
-    ("datanode-internal", "PUT", "/api/v1/internal/blocks/{user}/{hash}"),
-    ("datanode-public", "GET", "/api/v1/blocks/{hash}"),
-    ("datanode-public", "PUT", "/api/v1/blocks/{hash}"),
-}
-
-
-def stub_operations() -> list:
-    """Todas las rutas menos health y las ya implementadas."""
-    return [
-        pytest.param(name, method, path, id=f"{name} {method} {path}")
-        for name, app in APPS.items()
-        for method, path in sorted(documented_routes(app))
-        if not path.endswith("/health") and (name, method, path) not in IMPLEMENTED_ROUTES
-    ]
-
-
-def test_implemented_routes_exist():
-    """Si una ruta de IMPLEMENTED_ROUTES cambia de nombre, la prueba de los stubs no debe saltársela en silencio."""
-    for name, method, path in IMPLEMENTED_ROUTES:
-        assert (method, path) in documented_routes(APPS[name])
-
-
-@pytest.mark.parametrize(("name", "method", "path"), stub_operations())
-def test_stub_responds_501_with_error_shape(name, method, path):
-    app = APPS[name]
-    spec = app.openapi()
-    op = spec["paths"][path][method.lower()]
-    # Petición válida armada con los ejemplos del contrato.
-    params = {p["name"]: "/docs/informe.pdf" for p in op.get("parameters", []) if p["in"] == "query"}
-    params.pop("version", None)
-    request = {}
-    content = op.get("requestBody", {}).get("content", {})
-    if "application/json" in content:
-        model_name = content["application/json"]["schema"]["$ref"].rsplit("/", 1)[-1]
-        request["json"] = spec["components"]["schemas"][model_name]["examples"][0]
-    elif "application/octet-stream" in content:
-        request["content"] = b"contenido del bloque"
-
-    response = TestClient(app).request(method, path.format(**SAMPLE_PATH_PARAMS), params=params, **request)
-
-    assert response.status_code == 501
-    assert response.json() == NOT_IMPLEMENTED
 
 
 @pytest.mark.parametrize("app", [metaserver_public, datanode_public], ids=["metaserver", "datanode"])
@@ -756,7 +691,8 @@ def test_upload_requires_block_size():
         models.UploadRequest.model_validate(without)
     with pytest.raises(ValidationError):
         models.UploadRequest.model_validate({**example, "block_size": 0})
-    response = TestClient(metaserver_public).post("/api/v1/uploads", json=without)
+    with public_client() as client:  # la ruta exige el JWT antes de validar el cuerpo (sección 1)
+        response = client.post("/api/v1/uploads", json=without, headers=bearer())
     assert response.status_code == 400
 
 
@@ -788,30 +724,42 @@ def test_internal_error_is_in_the_table():
     assert "| 500 | `E_INTERNAL` | error inesperado del servidor | false |" in CONTRATOS_MD
 
 
-# Cada caso usa una ruta que sigue siendo stub: la prueba rompe el DFSError que lanza el stub.
-# Las rutas de bloques del DataNode ya no son stubs: sus casos están en tests/test_datanode_internal.py
-# y tests/test_datanode_public.py.
+class BrokenEtcd(FakeEtcd):
+    """Un etcd que falla de una forma que nadie previó."""
+
+    async def get(self, key):
+        raise RuntimeError("detalle interno que no debe salir")
+
+    async def get_prefix(self, prefix, **kwargs):
+        raise RuntimeError("detalle interno que no debe salir")
+
+
+# Las rutas de bloques del DataNode tienen sus casos en tests/test_datanode_internal.py y
+# tests/test_datanode_public.py.
 UNEXPECTED_ERROR_CASES = [
-    ("metaserver.public_api", "GET", "/api/v1/files/blocks", {"params": {"path": "/docs/informe.pdf"}}),
-    ("metaserver.internal_api", "POST", "/api/v1/internal/register", {"json": first_example(models.RegisterRequest)}),
+    ("metaserver-public", "GET", "/api/v1/files/blocks", {"params": {"path": "/docs/informe.pdf"}, "headers": bearer()}),
+    ("metaserver-internal", "POST", "/api/v1/internal/blocks/confirm", {"json": first_example(models.BlockConfirmRequest)}),
 ]
 
 
 @pytest.mark.parametrize(
-    ("module_name", "method", "url", "request_args"), UNEXPECTED_ERROR_CASES, ids=[case[0] for case in UNEXPECTED_ERROR_CASES]
+    ("name", "method", "url", "request_args"), UNEXPECTED_ERROR_CASES, ids=[case[0] for case in UNEXPECTED_ERROR_CASES]
 )
-def test_unexpected_exception_responds_500_internal(module_name, method, url, request_args, monkeypatch, caplog):
-    module = importlib.import_module(module_name)
-
-    def broken_stub(*args, **kwargs):
-        raise RuntimeError("detalle interno que no debe salir")
-
-    # El stub llama a DFSError(...); al cambiarla por una función que falla, la ruta lanza una excepción no prevista.
-    monkeypatch.setattr(module, "DFSError", broken_stub)
-    # Starlette vuelve a lanzar la excepción después de responder; aquí solo interesa la respuesta.
-    client = TestClient(module.app, raise_server_exceptions=False)
-
-    response = client.request(method, url, **request_args)
+def test_unexpected_exception_responds_500_internal(name, method, url, request_args, caplog):
+    app = APPS[name]
+    app.dependency_overrides.update(
+        {
+            metaserver_deps.get_etcd: BrokenEtcd,
+            metaserver_deps.get_settings: lambda: Settings(_env_file=None),
+            metaserver_deps.get_jwt_secret: lambda: JWT_SECRET,
+            metaserver_deps.get_pass_key: lambda: PASS_KEY,
+        }
+    )
+    try:
+        # Starlette vuelve a lanzar la excepción después de responder; aquí solo interesa la respuesta.
+        response = TestClient(app, raise_server_exceptions=False).request(method, url, **request_args)
+    finally:
+        app.dependency_overrides.clear()
 
     assert response.status_code == 500
     assert response.json() == {"error": "E_INTERNAL", "message": "error inesperado del servidor", "retryable": False}
@@ -827,6 +775,8 @@ def test_dfs_error_is_the_only_exception_with_an_error_code():
     modules = ["dfs_common.errors", "dfs_common.models", "dfs_common.config", "dfs_common.app"]
     modules += ["metaserver.public_api", "metaserver.internal_api", "datanode.public_api", "datanode.internal_api"]
     modules += ["metaserver.etcd", "metaserver.auth", "metaserver.deps", "metaserver.fs", "metaserver.keys"]
+    modules += ["metaserver.locks", "metaserver.nodes", "metaserver.placement", "metaserver.blocks"]
+    modules += ["metaserver.uploads", "metaserver.files"]
     project_packages = {"dfs_common", "metaserver", "datanode"}
     project_exceptions = set()
     for name in modules:
@@ -908,7 +858,8 @@ def test_upload_rejects_repeated_indices_and_oversized_blocks(change, message):
     body = change(first_example(models.UploadRequest))
     with pytest.raises(ValidationError, match=message):
         models.UploadRequest.model_validate(body)
-    response = TestClient(metaserver_public).post("/api/v1/uploads", json=body)
+    with public_client() as client:  # la ruta exige el JWT antes de validar el cuerpo (sección 1)
+        response = client.post("/api/v1/uploads", json=body, headers=bearer())
     assert response.status_code == 400
     assert response.json()["error"] == "E_BAD_REQUEST"
     assert message in response.json()["message"]
@@ -923,7 +874,8 @@ def test_register_requires_disk_id():
     without = {key: value for key, value in example.items() if key != "disk_id"}
     with pytest.raises(ValidationError):
         models.RegisterRequest.model_validate(without)
-    response = TestClient(metaserver_internal).post("/api/v1/internal/register", json=without)
+    with internal_client(ip=example["ip"]) as client:
+        response = client.post("/api/v1/internal/register", json=without)
     assert response.status_code == 400
 
 
@@ -1015,3 +967,25 @@ def test_replicas_error_talks_about_live_copies_and_dfs_w():
     description = ERROR_TABLE[ErrorCode.E_REPLICAS].description
     assert "vivas" in description and "DFS_W" in description
     assert "confirmadas" not in description
+
+
+# =====================================================================
+# Cambios de contrato de la tarea 12 (sección 13)
+# =====================================================================
+
+
+def test_file_sha256_is_optional_in_the_commit_and_the_manifest():
+    """a y rw envían file_sha256 null: calcularlo obligaría a descargar el archivo entero."""
+    commit = first_example(models.CommitRequest)
+    assert models.CommitRequest.model_validate({**commit, "file_sha256": None}).file_sha256 is None
+    without = {key: value for key, value in commit.items() if key != "file_sha256"}
+    assert models.CommitRequest.model_validate(without).file_sha256 is None
+    manifest = {**first_example(models.FileBlocksResponse), "file_sha256": None}
+    assert models.FileBlocksResponse.model_validate(manifest).file_sha256 is None
+    assert "`file_sha256` es opcional" in CONTRATOS_MD
+
+
+def test_uploads_key_keeps_the_blocks_of_the_reservation():
+    assert "| `/uploads/{upload_id}` | `{user, path, mode, base_version, block_size, lock_key, blocks, created_at}` |" in (
+        CONTRATOS_MD
+    )
