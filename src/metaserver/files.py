@@ -33,22 +33,7 @@ async def file_blocks(
     lector termina con los pases que tiene y no puede renovarlos. Es una limitación aceptada
     (docs/contratos.md, sección 2).
     """
-    if path == "/":
-        raise DFSError(ErrorCode.E_BAD_REQUEST, "la raíz / es un directorio")
-    entry = await etcd.get(ns_key(user, path))
-    if entry is None:
-        raise DFSError(ErrorCode.E_NOT_FOUND, f"{path} no existe")
-    node = entry.json()
-    if node["type"] == "dir":
-        raise DFSError(ErrorCode.E_BAD_REQUEST, f"{path} es un directorio")
-    wanted = node["version"] if version is None else version
-    kv = await etcd.get(manifest_key(node["file_id"], wanted))
-    if kv is None:
-        raise DFSError(ErrorCode.E_NOT_FOUND, f"la versión {wanted} de {path} no existe")
-    manifest = kv.json()
-    if wanted != node["version"] and not _retained(manifest, settings.retention_s):
-        raise DFSError(ErrorCode.E_NOT_FOUND, f"la versión {wanted} de {path} ya no está retenida; reabre el archivo")
-
+    wanted, manifest = await _readable_manifest(etcd, user, path, version, settings.retention_s)
     alive = by_id(await live_nodes(etcd))
     exp = int(time.time()) + settings.pass_ttl_s
     sizes = expected_sizes(manifest["size"], manifest["block_size"])
@@ -74,6 +59,29 @@ async def file_blocks(
         file_sha256=manifest["file_sha256"],
         blocks=blocks,
     )
+
+
+async def _readable_manifest(
+    etcd: Etcd, user: str, path: str, version: int | None, retention_s: int
+) -> tuple[int, dict]:
+    """La versión que se puede leer y su manifiesto: la actual, o version si es la actual o sigue
+    retenida. La raíz o un directorio: 400. La ruta o la versión no existen, o ya no está retenida: 404."""
+    if path == "/":
+        raise DFSError(ErrorCode.E_BAD_REQUEST, "la raíz / es un directorio")
+    entry = await etcd.get(ns_key(user, path))
+    if entry is None:
+        raise DFSError(ErrorCode.E_NOT_FOUND, f"{path} no existe")
+    node = entry.json()
+    if node["type"] == "dir":
+        raise DFSError(ErrorCode.E_BAD_REQUEST, f"{path} es un directorio")
+    wanted = node["version"] if version is None else version
+    kv = await etcd.get(manifest_key(node["file_id"], wanted))
+    if kv is None:
+        raise DFSError(ErrorCode.E_NOT_FOUND, f"la versión {wanted} de {path} no existe")
+    manifest = kv.json()
+    if wanted != node["version"] and not _retained(manifest, retention_s):
+        raise DFSError(ErrorCode.E_NOT_FOUND, f"la versión {wanted} de {path} ya no está retenida; reabre el archivo")
+    return wanted, manifest
 
 
 def order_replicas(stored_on: list[str], alive: dict[str, Node], client_zone: str | None) -> list[NodeAddress]:

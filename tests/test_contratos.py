@@ -81,13 +81,6 @@ EXPECTED_ROUTES: dict[str, set[tuple[str, str]]] = {
 }
 
 HASH = "b64bb9046f61749097db060781bcbbba317c08ff0ac378e9aed9a6d18217e449"
-SAMPLE_PATH_PARAMS = {
-    "lock_id": "694d8a1c2e3b4f05",
-    "upload_id": "9b2f6d1e-4c3a-4e8b-9f1d-2a7c5e8b1d43",
-    "hash": HASH,
-    "user": "ana",
-}
-NOT_IMPLEMENTED = {"error": "E_NOT_IMPLEMENTED", "message": "ruta todavía sin implementar", "retryable": False}
 
 
 def documented_routes(app: FastAPI) -> set[tuple[str, str]]:
@@ -187,76 +180,6 @@ def test_contratos_md_has_the_same_error_table():
     for code, spec in ERROR_TABLE.items():
         row = f"| {spec.http_status} | `{code}` | {spec.description} | {str(spec.retryable).lower()} |"
         assert row in CONTRATOS_MD, f"falta o cambió la fila de {code} en docs/contratos.md"
-
-
-# Rutas que ya no son stubs, además de health. Sus pruebas están en tests/test_auth.py (tarea 07),
-# tests/test_fs.py (tarea 08), tests/test_datanode_internal.py (tarea 09), tests/test_datanode_public.py
-# (tarea 10), tests/test_locks.py (tarea 11), tests/test_uploads.py, test_files.py y test_blocks.py
-# (tarea 12), y tests/test_nodes.py, test_metaservers.py y test_status.py (tarea 13). PUT /blocks/{hash}
-# sigue siendo stub, pero antes verifica el pase: su 501 se prueba con un pase válido en
-# tests/test_datanode_public.py.
-IMPLEMENTED_ROUTES = {
-    ("metaserver-public", "POST", "/api/v1/auth/login"),
-    ("metaserver-public", "POST", "/api/v1/admin/users"),
-    ("metaserver-public", "GET", "/api/v1/fs/ls"),
-    ("metaserver-public", "GET", "/api/v1/fs/stat"),
-    ("metaserver-public", "POST", "/api/v1/fs/mkdir"),
-    ("metaserver-public", "DELETE", "/api/v1/fs/rmdir"),
-    ("metaserver-public", "DELETE", "/api/v1/fs/rm"),
-    ("metaserver-public", "POST", "/api/v1/locks"),
-    ("metaserver-public", "PUT", "/api/v1/locks/{lock_id}"),
-    ("metaserver-public", "DELETE", "/api/v1/locks/{lock_id}"),
-    ("metaserver-public", "GET", "/api/v1/files/blocks"),
-    ("metaserver-public", "POST", "/api/v1/uploads"),
-    ("metaserver-public", "POST", "/api/v1/uploads/{upload_id}/realloc"),
-    ("metaserver-public", "POST", "/api/v1/uploads/{upload_id}/commit"),
-    ("metaserver-internal", "POST", "/api/v1/internal/blocks/confirm"),
-    ("metaserver-public", "GET", "/api/v1/cluster/metaservers"),
-    ("metaserver-public", "GET", "/api/v1/admin/status"),
-    ("metaserver-internal", "POST", "/api/v1/internal/register"),
-    ("metaserver-internal", "POST", "/api/v1/internal/heartbeat"),
-    ("datanode-internal", "PUT", "/api/v1/internal/blocks/{user}/{hash}"),
-    ("datanode-public", "GET", "/api/v1/blocks/{hash}"),
-    ("datanode-public", "PUT", "/api/v1/blocks/{hash}"),
-}
-
-
-def stub_operations() -> list:
-    """Todas las rutas menos health y las ya implementadas."""
-    return [
-        pytest.param(name, method, path, id=f"{name} {method} {path}")
-        for name, app in APPS.items()
-        for method, path in sorted(documented_routes(app))
-        if not path.endswith("/health") and (name, method, path) not in IMPLEMENTED_ROUTES
-    ]
-
-
-def test_implemented_routes_exist():
-    """Si una ruta de IMPLEMENTED_ROUTES cambia de nombre, la prueba de los stubs no debe saltársela en silencio."""
-    for name, method, path in IMPLEMENTED_ROUTES:
-        assert (method, path) in documented_routes(APPS[name])
-
-
-@pytest.mark.parametrize(("name", "method", "path"), stub_operations())
-def test_stub_responds_501_with_error_shape(name, method, path):
-    app = APPS[name]
-    spec = app.openapi()
-    op = spec["paths"][path][method.lower()]
-    # Petición válida armada con los ejemplos del contrato.
-    params = {p["name"]: "/docs/informe.pdf" for p in op.get("parameters", []) if p["in"] == "query"}
-    params.pop("version", None)
-    request = {}
-    content = op.get("requestBody", {}).get("content", {})
-    if "application/json" in content:
-        model_name = content["application/json"]["schema"]["$ref"].rsplit("/", 1)[-1]
-        request["json"] = spec["components"]["schemas"][model_name]["examples"][0]
-    elif "application/octet-stream" in content:
-        request["content"] = b"contenido del bloque"
-
-    response = TestClient(app).request(method, path.format(**SAMPLE_PATH_PARAMS), params=params, **request)
-
-    assert response.status_code == 501
-    assert response.json() == NOT_IMPLEMENTED
 
 
 @pytest.mark.parametrize("app", [metaserver_public, datanode_public], ids=["metaserver", "datanode"])

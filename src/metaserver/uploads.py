@@ -38,7 +38,7 @@ from metaserver.blocks import in_two_live_zones, touch_block
 from metaserver.etcd import Etcd, KeyValue, LeaseNotFound, compare, lease_from_hex, op_delete, op_put
 from metaserver.fs import now_ms
 from metaserver.keys import block_key, manifest_key, ns_key, upload_key
-from metaserver.locks import resolve_lock
+from metaserver.locks import LockInfo, resolve_lock
 from metaserver.nodes import Node, by_id, live_nodes
 from metaserver.placement import choose_nodes
 
@@ -56,27 +56,9 @@ def new_start() -> int:
 async def create_upload(
     etcd: Etcd, user: str, body: UploadRequest, settings: Settings, pass_key: bytes
 ) -> UploadResponse:
-    """POST /uploads. Las comprobaciones van en este orden, y la primera que falla responde:
-
-    1. la raíz o un directorio: 400; el padre no existe o es un archivo: 404;
-    2. el lock (409 o 403), que además debe ser de esta ruta (409 E_LOCK_LOST);
-    3. la versión base debe ser la actual (0 si el archivo no existe): 409 E_VERSION_CONFLICT;
-    4. block_size: DFS_BLOCK_MIB MiB con w o con un archivo nuevo; con a y rw sobre un archivo
-       que existe, el de su versión actual (decisión 2 de la 02c): 400.
-    Los índices repetidos y los bloques mayores que block_size ya los rechaza el modelo (400).
-    """
-    path = body.path
-    entry = await _file_entry(etcd, user, path)
-    await _parent_entry(etcd, user, path)
-    lock = await resolve_lock(etcd, body.lock_id, user)
-    if lock.path != path:
-        raise DFSError(ErrorCode.E_LOCK_LOST, f"el lock {body.lock_id} es de otro archivo")
-    if body.base_version != _version(entry):
-        raise DFSError(ErrorCode.E_VERSION_CONFLICT, f"la versión base {body.base_version} ya no es la actual")
-    base = await _manifest(etcd, entry)
-    expected = settings.block_mib * MIB if body.mode == "w" or base is None else base.json()["block_size"]
-    if body.block_size != expected:
-        raise DFSError(ErrorCode.E_BAD_REQUEST, f"block_size debe ser {expected}")
+    """POST /uploads: comprueba la reserva, separa los bloques presentes de los que faltan y
+    guarda la subida atada al lease del lock."""
+    lock = await _check_reservation(etcd, user, body, settings)
 
     nodes = await live_nodes(etcd)
     alive = by_id(nodes)
@@ -95,7 +77,7 @@ async def create_upload(
     upload_id = str(uuid.uuid4())
     upload = {
         "user": user,
-        "path": path,
+        "path": body.path,
         "mode": body.mode,
         "base_version": body.base_version,
         "block_size": body.block_size,
@@ -109,6 +91,31 @@ async def create_upload(
     except LeaseNotFound:
         raise DFSError(ErrorCode.E_LOCK_LOST, f"el lock {body.lock_id} venció") from None
     return UploadResponse(upload_id=upload_id, present=present, missing=missing)
+
+
+async def _check_reservation(etcd: Etcd, user: str, body: UploadRequest, settings: Settings) -> LockInfo:
+    """Las comprobaciones de POST /uploads, en este orden; la primera que falla responde:
+
+    1. la raíz o un directorio: 400; el padre no existe o es un archivo: 404;
+    2. el lock (409 o 403), que además debe ser de esta ruta (409 E_LOCK_LOST);
+    3. la versión base debe ser la actual (0 si el archivo no existe): 409 E_VERSION_CONFLICT;
+    4. block_size: DFS_BLOCK_MIB MiB con w o con un archivo nuevo; con a y rw sobre un archivo
+       que existe, el de su versión actual (decisión 2 de la 02c): 400.
+    Los índices repetidos y los bloques mayores que block_size ya los rechaza el modelo (400).
+    Devuelve el lock.
+    """
+    entry = await _file_entry(etcd, user, body.path)
+    await _parent_entry(etcd, user, body.path)
+    lock = await resolve_lock(etcd, body.lock_id, user)
+    if lock.path != body.path:
+        raise DFSError(ErrorCode.E_LOCK_LOST, f"el lock {body.lock_id} es de otro archivo")
+    if body.base_version != _version(entry):
+        raise DFSError(ErrorCode.E_VERSION_CONFLICT, f"la versión base {body.base_version} ya no es la actual")
+    base = await _manifest(etcd, entry)
+    expected = settings.block_mib * MIB if body.mode == "w" or base is None else base.json()["block_size"]
+    if body.block_size != expected:
+        raise DFSError(ErrorCode.E_BAD_REQUEST, f"block_size debe ser {expected}")
+    return lock
 
 
 # --- Otros destinos ---
@@ -153,9 +160,20 @@ async def commit_upload(etcd: Etcd, user: str, upload_id: str, body: CommitReque
         raise DFSError(ErrorCode.E_VERSION_CONFLICT, f"la versión base {body.base_version} ya no es la actual")
     parent = await _parent_entry(etcd, user, path) if body.base_version == 0 else None
     base = await _manifest(etcd, entry)
+    await _check_blocks(etcd, user, body, upload, base.json() if base else None)
+    return await _publish(etcd, user, upload_id, upload, body, lock.key, entry, parent, base)
 
-    # Cada bloque debe estar confirmado. Se comprueba aquí y no en la transacción: etcd admite
-    # hasta 128 operaciones por transacción, y la limpieza no borra un bloque tocado hace poco.
+
+async def _check_blocks(etcd: Etcd, user: str, body: CommitRequest, upload: dict, base: dict | None) -> None:
+    """Los bloques de la versión nueva, antes de publicarla:
+
+    1. cada uno tiene su clave en /blocks/ (está confirmado); si no, 422 E_REPLICAS. Se comprueba
+       aquí y no en la transacción: etcd admite hasta 128 operaciones por transacción, y la
+       limpieza no borra un bloque tocado hace poco;
+    2. forman el archivo: sin huecos, sin truncar con a y rw y sin cambiar lo que ya estaba con a (400);
+    3. G1: todo bloque que no estaba en la versión base, venga o no en la subida, tiene copias
+       vivas en 2 zonas (422). Los de la base solo necesitan su clave (sección 13, punto 1).
+    """
     stored = {}
     for hash in dict.fromkeys(body.hashes):
         kv = await etcd.get(block_key(user, hash))
@@ -163,16 +181,12 @@ async def commit_upload(etcd: Etcd, user: str, upload_id: str, body: CommitReque
             raise DFSError(ErrorCode.E_REPLICAS, f"el bloque {hash} no está confirmado")
         stored[hash] = kv.json()
     sizes = [stored[hash]["size"] for hash in body.hashes]
-    check_commit(body.hashes, sizes, body.size, upload["block_size"], upload["mode"], base.json() if base else None)
-    # G1: los bloques nuevos, con copias vivas en 2 zonas. Los de la versión base que a y rw
-    # no cambian solo necesitan su clave (sección 13, punto 1).
+    check_commit(body.hashes, sizes, body.size, upload["block_size"], upload["mode"], base)
+    from_base = set(base["hashes"]) if base else set()
     alive = by_id(await live_nodes(etcd))
-    for block in upload["blocks"]:
-        hash = block["hash"]
-        if hash in stored and not in_two_live_zones(stored[hash]["stored_on"], alive):
+    for hash, block in stored.items():
+        if hash not in from_base and not in_two_live_zones(block["stored_on"], alive):
             raise DFSError(ErrorCode.E_REPLICAS, f"las copias vivas del bloque {hash} no cubren 2 zonas")
-
-    return await _publish(etcd, user, upload_id, upload, body, lock.key, entry, parent, base)
 
 
 async def _publish(
@@ -225,14 +239,22 @@ async def _publish(
 
     if (await etcd.txn(conditions, operations, [])).succeeded:
         return CommitResponse(path=path, version=version)
-    # Falló una comparación: se vuelve a leer para saber cuál.
+    raise await _failed_commit(etcd, lock_key, parent, path)
+
+
+async def _failed_commit(etcd: Etcd, lock_key: str, parent: KeyValue | None, path: str) -> DFSError:
+    """Falló una comparación de la transacción del commit: se vuelve a leer para saber cuál.
+
+    Sin la clave del lock: 409 E_LOCK_LOST. Con el padre cambiado o borrado: 404. Si no, la ruta
+    cambió (otro commit, o alguien la creó): 409 E_VERSION_CONFLICT.
+    """
     if await etcd.get(lock_key) is None:
-        raise DFSError(ErrorCode.E_LOCK_LOST, "el lock venció antes de publicar")
+        return DFSError(ErrorCode.E_LOCK_LOST, "el lock venció antes de publicar")
     if parent is not None:
         current = await etcd.get(parent.key)
         if current is None or current.mod_revision != parent.mod_revision:
-            raise DFSError(ErrorCode.E_NOT_FOUND, "el directorio padre cambió o ya no existe")
-    raise DFSError(ErrorCode.E_VERSION_CONFLICT, f"{path} cambió antes de publicar")
+            return DFSError(ErrorCode.E_NOT_FOUND, "el directorio padre cambió o ya no existe")
+    return DFSError(ErrorCode.E_VERSION_CONFLICT, f"{path} cambió antes de publicar")
 
 
 def expected_sizes(size: int, block_size: int) -> list[int]:

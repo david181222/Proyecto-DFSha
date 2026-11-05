@@ -380,6 +380,32 @@ def test_append_keeps_the_old_blocks_and_only_needs_their_keys():
     assert response.json() == {"path": PATH, "version": 4}
 
 
+@pytest.mark.parametrize(("stored_on", "status"), [(["dn2", "dn4"], 422), (["dn1", "dn2"], 200)], ids=["una-zona", "dos-zonas"])
+def test_a_hash_that_is_neither_in_the_upload_nor_in_the_base_needs_two_live_zones(stored_on, status):
+    """G1: solo los bloques de la versión base se eximen de las 2 zonas vivas (sección 13, punto 1)."""
+    etcd = cluster()
+    add_block(etcd, "ana", H_OLD, stored_on=stored_on, size=MIB)  # no se reservó: viene de otro archivo
+    with public_client(etcd) as client:
+        lock_id, upload_id = prepared(client, etcd, blocks=[spec(0, H0)])
+        response = commit(client, upload_id, lock_id, hashes=[H0, H_OLD], size=BLOCK + MIB)
+    assert response.status_code == status, response.json()
+    if status == 422:
+        assert response.json()["error"] == "E_REPLICAS"
+        assert etcd.value(f"/ns/ana{PATH}") is None and etcd.keys("/files/") == []  # no se publicó
+    else:
+        assert response.json() == {"path": PATH, "version": 1}
+
+
+def test_a_base_block_with_live_copies_in_a_single_zone_is_published():
+    """La prueba "Fallos: zona b": con la zona b caída se sigue escribiendo sobre un archivo viejo."""
+    etcd = cluster()
+    publish(etcd, hashes=[H0, H1, H2], size=SIZE, version=3, stored_on=["dn1"])  # dn2, dn3 y dn4 no aparecen
+    with public_client(etcd) as client:
+        lock_id, upload_id = prepared(client, etcd, blocks=[spec(1, H_OLD)], base_version=3, mode="rw")
+        response = commit(client, upload_id, lock_id, hashes=[H0, H_OLD, H2], size=SIZE, base_version=3)
+    assert response.json() == {"path": PATH, "version": 4}
+
+
 def test_rw_cannot_truncate():
     etcd = cluster()
     publish(etcd, hashes=[H0, H1, H2], size=SIZE, version=3)

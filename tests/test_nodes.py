@@ -3,6 +3,7 @@
 import pytest
 
 from metaserver.etcd import lease_from_hex, lease_hex
+from metaserver.nodes import same_ip
 
 from fakes import DA13, FakeEtcd, add_block, internal_client
 
@@ -209,3 +210,25 @@ def test_an_invalid_body_is_400(route):
     with internal_client() as client:
         response = client.post(route, json={"node_id": "dn1"})
     assert_error(response, 400, "E_BAD_REQUEST")
+
+
+# --- La IP de origen (función pura) ---
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "same"),
+    [
+        ("10.88.0.31", "10.88.0.31", True),
+        ("::ffff:10.88.0.31", "10.88.0.31", True),  # IPv6 mapeada: un servidor que escucha en ::
+        ("10.88.0.31", "10.88.0.32", False),
+        ("no-es-una-ip", "10.88.0.31", False),
+        ("10.88.0.31", None, False),  # el nodo no está vivo
+    ],
+)
+def test_same_ip(first, second, same):
+    assert same_ip(first, second) is same
+
+
+def test_register_from_an_ipv6_mapped_address_is_the_same_node():
+    etcd = FakeEtcd()
+    assert register(etcd, ip="::ffff:172.31.0.10").status_code == 200
