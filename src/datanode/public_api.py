@@ -8,15 +8,20 @@ Implementadas: health y GET /blocks/{hash} (tarea 10), y PUT /blocks/{hash}: gua
 reenviar a los secundarios y confirmar al MetaServer (tarea 14, datanode.primary).
 
 Al arrancar, el lifespan abre el almacén, lee la clave de los pases y crea los clientes HTTP
-hacia los secundarios y los MetaServers (datanode.deps). Se arranca con python -m datanode.
+hacia los secundarios y los MetaServers (datanode.deps). Después arranca las tareas de fondo del
+proceso: el registro y los latidos, y el trabajador que cumple las órdenes (tarea 15,
+datanode.agent). Se arranca con python -m datanode.
 """
 
+import asyncio
+import contextlib
 from contextlib import asynccontextmanager
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, FastAPI, Request, Response
 
 from datanode import primary
+from datanode.agent import NodeAgent, load_disk_id
 from datanode.auth import HashPath, require_pass
 from datanode.deps import MetaClientDep, PeersDep, SettingsDep, StoreDep, open_clients, open_resources
 from dfs_common.app import BINARY_REQUEST_BODY, create_app
@@ -107,9 +112,27 @@ def health():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Al arrancar: configuración, almacén y clave de los pases, y los clientes HTTP de esta app."""
+    """Al arrancar: configuración, almacén, clave de los pases, clientes HTTP y las tareas de fondo.
+
+    Las tareas de fondo (registro y latidos, y el trabajador de las órdenes) son del proceso: van
+    aquí y no en la app interna, para correr una sola vez. Sin DFS_NODE_IP, o con bloques en
+    DFS_DATA_DIR pero sin .disk_id, el arranque falla y Docker reinicia el contenedor.
+    """
     async with open_resources(app), open_clients(app):
-        yield
+        state = app.state
+        agent = NodeAgent(
+            state.settings, state.store, state.meta_client, state.peers, disk_id=load_disk_id(state.settings.data_dir)
+        )
+        app.state.agent = agent
+        tasks = [asyncio.create_task(agent.heartbeat_loop()), asyncio.create_task(agent.order_worker())]
+        try:
+            yield
+        finally:
+            for task in tasks:
+                task.cancel()
+            for task in tasks:
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
 
 
 app = create_app(
