@@ -18,6 +18,7 @@ Equipo: Edwin Vélez, José Díaz y Santiago Martínez.
 | 11 | Locks: `POST /locks` con espera en la fila de etcd y renovación del lease mientras espera, `PUT` y `DELETE /locks/{lock_id}` (`src/metaserver/locks.py`) |
 | 12 | Subidas: reserva con ubicación de réplicas en 2 zonas, `realloc`, commit con su transacción, `GET /files/blocks` y `POST /internal/blocks/confirm` (`uploads.py`, `placement.py`, `blocks.py` y `files.py`) |
 | 13 | Registro y latidos de los DataNodes (`datanodes.py`), autorregistro de los MetaServers y `GET /cluster/metaservers` (`metaservers.py`), y `GET /admin/status` (`status.py`) |
+| 16 | Cliente `dfs`: `login`, `logout`, `pwd`, `cd`, `ls`, `stat [--blocks]`, `mkdir`, `rmdir`, `rm`, `useradd` y `status` (`src/dfs_client/`, ver "Correr en local", paso 5) |
 
 Todas las rutas del MetaServer funcionan. Sigue siendo *stub* (responde 501) el envío de un bloque al primario (`PUT /blocks/{hash}`). La validación de parámetros funciona en todas. Un DataNode ya guarda y entrega bloques cifrados, pero todavía no reenvía réplicas ni late. Las decisiones de comportamiento de las tareas 06 a 08 están en la sección 11 de `docs/contratos.md`, y las de las tareas 09 y 10, en la sección 12. Las de la tarea 11 no cambian el contrato y están en el docstring de `src/metaserver/locks.py`; los cambios y decisiones de la tarea 12, en la sección 13; y las de la tarea 13, en los docstrings de `datanodes.py`, `metaservers.py` y `status.py`.
 
@@ -49,6 +50,14 @@ Código del DataNode:
 | `deps.py` | Lo que se crea al arrancar (configuración, almacén y clave de los pases); las dos apps comparten el almacén |
 | `storage.py` | `BlockStore`: guarda, lee y borra bloques cifrados en `DFS_DATA_DIR` |
 | `auth.py` | `require_pass`: verifica el pase de bloque de cada petición |
+
+Código del cliente (`src/dfs_client/`):
+
+| Módulo | Qué hace |
+|---|---|
+| `api.py` | `DfsApi`: una llamada por ruta del contrato; descubre los MetaServers y pasa al siguiente si uno no responde |
+| `session.py` | Sesión en `~/.dfs/session.json` (usuario, JWT y directorio actual); `Session.resolve` arma la ruta absoluta |
+| `cli.py` | Comandos `dfs` con typer; el formato de la salida está en las funciones `format_*` |
 
 | Documento | Contenido |
 |---|---|
@@ -183,7 +192,22 @@ printf '{"user":"admin","password":"%s"}' "$(cat secrets/local/admin_password)" 
 
 Con ese token se crean usuarios (`POST /api/v1/admin/users`), y con el token de cada usuario se usan las rutas `/fs` (`docs/contratos.md`, sección 2).
 
-**5. Apagar:**
+**5. Usar el cliente `dfs`.** Desde el contenedor `client`; la contraseña de `admin` está en `secrets/local/admin_password`. La sesión queda en `~/.dfs/session.json` del contenedor.
+
+```bash
+docker compose -f compose.local.yml exec client dfs login --user admin
+docker compose -f compose.local.yml exec client dfs useradd ana
+docker compose -f compose.local.yml exec client dfs status
+docker compose -f compose.local.yml exec client dfs login --user ana
+docker compose -f compose.local.yml exec client dfs mkdir /docs
+docker compose -f compose.local.yml exec client dfs cd /docs
+docker compose -f compose.local.yml exec client dfs ls
+docker compose -f compose.local.yml exec client dfs rmdir /docs
+```
+
+`dfs --help` lista los comandos, y `dfs COMANDO --help` explica cada uno.
+
+**6. Apagar:**
 
 ```bash
 docker compose -f compose.local.yml down      # conserva los datos de etcd y de los DataNodes
