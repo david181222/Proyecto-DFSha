@@ -4,22 +4,23 @@ La usa el cliente para enviar y recibir bloques. Cada petición lleva el pase de
 bloque en Authorization: Bearer <pase>, firmado por el MetaServer (DA-10).
 El cuerpo de los bloques es binario (application/octet-stream, DA-06).
 
-Implementadas: health y GET /blocks/{hash} (tarea 10). PUT /blocks/{hash} verifica el
-pase y sigue respondiendo 501 E_NOT_IMPLEMENTED: guardar, reenviar a los secundarios y
-confirmar al MetaServer es la tarea 14.
+Implementadas: health y GET /blocks/{hash} (tarea 10), y PUT /blocks/{hash}: guardar,
+reenviar a los secundarios y confirmar al MetaServer (tarea 14, datanode.primary).
 
-Al arrancar, el lifespan abre el almacén y lee la clave de los pases (datanode.deps).
-Se arranca con python -m datanode.
+Al arrancar, el lifespan abre el almacén, lee la clave de los pases y crea los clientes HTTP
+hacia los secundarios y los MetaServers (datanode.deps). Se arranca con python -m datanode.
 """
 
+from contextlib import asynccontextmanager
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, FastAPI, Request, Response
 
+from datanode import primary
 from datanode.auth import HashPath, require_pass
-from datanode.deps import StoreDep, open_resources
+from datanode.deps import MetaClientDep, PeersDep, SettingsDep, StoreDep, open_clients, open_resources
 from dfs_common.app import BINARY_REQUEST_BODY, create_app
-from dfs_common.errors import DFSError, ErrorCode, error_responses
+from dfs_common.errors import ErrorCode, error_responses
 from dfs_common.models import BlockPass, BlockStoredResponse, HealthResponse
 
 router = APIRouter(prefix="/api/v1")
@@ -44,7 +45,6 @@ class BlockBytesResponse(Response):
         "coincide con el hash; 422 E_REPLICAS si no logró W copias o si la confirmación dice que no "
         "cubren 2 zonas; ambos reintentables con realloc. DA-03, DA-04, DA-09."
     ),
-    dependencies=[Depends(require_pass("w"))],
     openapi_extra=BINARY_REQUEST_BODY,
     responses=error_responses(
         ErrorCode.E_BAD_REQUEST,
@@ -56,8 +56,17 @@ class BlockBytesResponse(Response):
         ErrorCode.E_NO_SPACE,
     ),
 )
-async def put_block(hash: HashPath, request: Request):
-    raise DFSError(ErrorCode.E_NOT_IMPLEMENTED)
+async def put_block(
+    hash: HashPath,
+    # El pase va primero: se comprueba antes de leer el cuerpo y antes que las demás dependencias.
+    block_pass: Annotated[BlockPass, Depends(require_pass("w"))],
+    request: Request,
+    store: StoreDep,
+    settings: SettingsDep,
+    peers: PeersDep,
+    meta: MetaClientDep,
+):
+    return await primary.store_block(store, peers, meta, settings, block_pass, hash, request.stream())
 
 
 @router.get(
@@ -96,9 +105,16 @@ def health():
     return HealthResponse(status="ok")
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Al arrancar: configuración, almacén y clave de los pases, y los clientes HTTP de esta app."""
+    async with open_resources(app), open_clients(app):
+        yield
+
+
 app = create_app(
     title="DFSha · DataNode público",
     description="API pública del DataNode (puerto 9443, HTTPS). Contrato legible en docs/contratos.md.",
-    lifespan=open_resources,
+    lifespan=lifespan,
 )
 app.include_router(router)
