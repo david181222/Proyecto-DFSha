@@ -49,9 +49,12 @@ x-logging: &logging
     max-size: 10m
     max-file: "3"
 
+# Cada servicio con su propia etiqueta de imagen (dfsha:aws-meta, -dn, -client), aunque salen del
+# mismo Dockerfile: en las VMs de control, Compose construye meta y dn a la vez, y con Docker 29 y
+# su almacén de imágenes de containerd, dos construcciones que terminan a la vez con el mismo nombre
+# chocan ("image already exists"; pasó en el primer despliegue, tarea 24). Las capas se comparten.
 x-dfs: &dfs
   build: .
-  image: dfsha:aws
   restart: unless-stopped
   network_mode: host
   logging: *logging
@@ -115,6 +118,7 @@ services:
   # --- MetaServer: CA, su certificado, jwt_secret, pass_key y admin_password ---
   meta:
     <<: *dfs
+    image: dfsha:aws-meta
     profiles: [control]
     command: ["python", "-m", "metaserver"]
     environment:
@@ -136,6 +140,7 @@ services:
   # --- DataNode: CA, su certificado, pass_key y su node_key (DA-09). Bloques en /data. ---
   dn:
     <<: *dfs
+    image: dfsha:aws-dn
     profiles: [control, data]
     command: ["python", "-m", "datanode"]
     environment:
@@ -157,6 +162,7 @@ services:
   # MetaServer, y de DFS_LOCK_RENEW_S y DFS_PRIMARY_WAIT_S salen los timeouts del cliente.
   client:
     <<: *dfs
+    image: dfsha:aws-client
     profiles: [client]
     command: ["sleep", "infinity"]
     environment:
