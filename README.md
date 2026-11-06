@@ -25,6 +25,7 @@ Equipo: Edwin Vélez, José Díaz y Santiago Martínez.
 | 18 | `open`, `read`, `write` y `close` con la semántica de RF3 y DA-14 (`files.py`), y `dfs shell` para probarlos con descriptores (`shell.py`) |
 | 19 | Líder: elección en etcd, re-réplica, terceras copias y copias que sobran (`src/metaserver/leader.py`) |
 | 20 | Limpieza de manifiestos vencidos y bloques sin uso, con la regla del instante T (`src/metaserver/gc.py`) |
+| 22 | Integración local: el sistema completo en Compose pasa el script de humo con 512 MiB (`scripts/pruebas/smoke.sh`, ver "Correr en local", paso 6); evidencia y medición de referencia en `docs/pruebas/22-integracion-local.md` |
 | 23 | Scripts de AWS con la AWS CLI (`infra/`): `create.sh`, `allow-ssh.sh`, `destroy.sh` y `deploy.sh` (DA-15), más `ssh.sh` para entrar a una VM, con la configuración común en `config.sh`; y `compose.aws.yml`, con un perfil por tipo de VM. Cómo se usa cada uno está en su comentario inicial; los pasos probados en AWS llegan con la tarea 24 |
 
 Ya funcionan todas las rutas de las cuatro APIs. Un DataNode guarda, entrega y reenvía bloques cifrados, se registra, late y cumple las órdenes del líder. Las decisiones de la tarea 15 están en el docstring de `src/datanode/agent.py`. Las decisiones de comportamiento de las tareas 06 a 08 están en la sección 11 de `docs/contratos.md`, y las de las tareas 09 y 10, en la sección 12. Las de la tarea 11 no cambian el contrato y están en el docstring de `src/metaserver/locks.py`; los cambios y decisiones de la tarea 12, en la sección 13; las de la tarea 13, en los docstrings de `datanodes.py`, `metaservers.py` y `status.py`; las de la tarea 18, en el de `src/dfs_client/files.py`; las de la tarea 19, en el de `leader.py`; las de la tarea 20, en el de `gc.py`; y las de la tarea 23, en los comentarios iniciales de `infra/deploy.sh`, `infra/lib.sh` y `compose.aws.yml`.
@@ -168,7 +169,7 @@ docker compose -f compose.local.yml up -d --build
 docker compose -f compose.local.yml ps
 ```
 
-Deben quedar 11 contenedores corriendo y los 3 etcd en `healthy`. Al arrancar, un MetaServer crea el usuario `admin` con la contraseña de `secrets/local/admin_password`; si etcd todavía no responde, el contenedor termina y Docker lo reinicia hasta que etcd esté listo. Un DataNode no arranca si `DFS_DATA_DIR` tiene bloques pero no `.disk_id` (contrato, sección 3): si los volúmenes vienen de antes de la tarea 15, borra los datos con `down -v` (paso 5). Los tiempos de DA-16 toman los valores normales; para usar los de prueba, crea un `.env` en la raíz (git lo ignora) con la columna "Pruebas" de `.env.example`, por ejemplo `DFS_RETENTION_S=60`.
+Deben quedar 11 contenedores corriendo y los 3 etcd en `healthy`. Al arrancar, un MetaServer crea el usuario `admin` con la contraseña de `secrets/local/admin_password`; si etcd todavía no responde, el contenedor termina y Docker lo reinicia hasta que etcd esté listo. Un DataNode no arranca si `DFS_DATA_DIR` tiene bloques pero no `.disk_id` (contrato, sección 3): si los volúmenes vienen de antes de la tarea 15, borra los datos con `down -v` (paso 7). Los tiempos de DA-16 toman los valores normales; para usar los de prueba, crea un `.env` en la raíz (git lo ignora) con la columna "Pruebas" de `.env.example`, por ejemplo `DFS_RETENTION_S=60`.
 
 **3. Comprobar TLS y mTLS:**
 
@@ -243,7 +244,22 @@ docker compose -f compose.local.yml exec client dfs shell
 
 `dfs --help` lista los comandos, y `dfs COMANDO --help` explica cada uno.
 
-**6. Apagar:**
+**6. Prueba de humo.** `scripts/pruebas/smoke.sh` comprueba todo de una vez:
+- entra como admin y crea el usuario `smoke`;
+- sube un archivo aleatorio de 512 MiB y revisa que cada bloque tenga 3 copias, en al menos 2 zonas y en los 4 DataNodes;
+- lo baja y compara el SHA-256;
+- mira `dfs status` y borra todo al final.
+
+Termina con `RESULTADO: PASA` o `FALLA`. Se corre en bash, desde la raíz del repositorio: en Windows, desde WSL (con la integración de Docker Desktop activada para la distro, en Settings, Resources, WSL integration) o desde Git Bash.
+
+```bash
+scripts/pruebas/smoke.sh                 # 512 MiB, la prueba oficial
+scripts/pruebas/smoke.sh --mib 64        # más rápido
+```
+
+El comentario del inicio del script explica las demás opciones, como `--env aws` para correrlo en la VM5 o `--csv` para guardar los tiempos. Las evidencias de las pruebas van en `docs/pruebas/`.
+
+**7. Apagar:**
 
 ```bash
 docker compose -f compose.local.yml down      # conserva los datos de etcd y de los DataNodes

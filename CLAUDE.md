@@ -42,6 +42,7 @@ docs/
   img/                  figuras de decisiones.md
   contratos.md          contrato legible (tarea 01)
   api/                  OpenAPI exportado en JSON (tarea 01)
+  pruebas/              evidencias de las pruebas (NN-nombre.md) y sus datos crudos en datos/
 src/
   dfs_common/           modelos, errores y configuración compartidos
   metaserver/           MetaServer: API pública (8443) e interna (8444)
@@ -49,6 +50,7 @@ src/
   dfs_client/           cliente y CLI dfs
 infra/                  scripts de AWS (DA-15): create, allow-ssh, destroy, deploy y ssh; config.sh
 scripts/                export_openapi.py (OpenAPI) y gen_secrets.py (CA, certificados y secretos)
+  pruebas/              scripts de prueba, iguales en local y en AWS (smoke.sh: prueba de humo)
 secrets/                secretos generados en local; git lo ignora
 tests/
 ```
