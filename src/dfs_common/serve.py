@@ -11,7 +11,10 @@ apps sin certificados.
 """
 
 import asyncio
+import contextlib
+import signal
 import ssl
+import threading
 
 import uvicorn
 from fastapi import FastAPI
@@ -47,11 +50,45 @@ def server_configs(
     return [server_config(settings, *public, mtls=False), server_config(settings, *internal, mtls=True)]
 
 
+class _Server(uvicorn.Server):
+    """Un servidor de uvicorn que no captura señales: las captura serve() para todos a la vez."""
+
+    @contextlib.contextmanager
+    def capture_signals(self):
+        yield
+
+
+@contextlib.contextmanager
+def _stop_all_on_signal(servers: list[uvicorn.Server]):
+    """SIGTERM (docker stop) o SIGINT le piden a todos los servidores que se apaguen a la vez.
+
+    uvicorn, solo, deja que cada Server capture la señal y la vuelva a lanzar al terminar. Con
+    dos servidores en un proceso eso falla: el primero se apaga, restaura el manejador y
+    relanza la señal, que puede matar el proceso antes de que el otro corra el apagado de su
+    lifespan (el MetaServer no hacía resign como líder, tarea 19). Aquí cada señal llega a
+    todos, nadie la relanza y el proceso termina cuando los dos terminaron de apagarse.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        yield  # las señales solo se capturan en el hilo principal
+        return
+
+    def stop_all(sig: int, frame) -> None:
+        for server in servers:
+            server.handle_exit(sig, frame)  # la segunda Ctrl+C fuerza la salida, como en uvicorn
+
+    previous = {sig: signal.signal(sig, stop_all) for sig in (signal.SIGINT, signal.SIGTERM)}
+    try:
+        yield
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+
+
 async def serve(configs: list[uvicorn.Config]) -> int:
     """Corre los servidores hasta que terminen. Devuelve 0, o el código de salida si uno no arrancó.
 
-    Cada Server captura SIGTERM y SIGINT; al terminar restaura el manejador anterior
-    y vuelve a lanzar la señal, así que una sola señal detiene a los dos.
+    Una sola señal (SIGTERM o SIGINT) apaga a todos, y cada uno corre el apagado de su
+    lifespan antes de que el proceso termine (_stop_all_on_signal).
 
     Si un servidor no arranca (por ejemplo, su lifespan no pudo hablar con etcd), uvicorn
     hace sys.exit() dentro del bucle de eventos. Aquí se atrapa, se detienen los demás y
@@ -59,7 +96,7 @@ async def serve(configs: list[uvicorn.Config]) -> int:
     (run_in_threadpool) quedaría vivo y el proceso se colgaría sin APIs, en vez de terminar
     para que Docker lo reinicie (restart: unless-stopped).
     """
-    servers = [uvicorn.Server(config) for config in configs]
+    servers = [_Server(config) for config in configs]
     exit_codes = []
 
     async def serve_one(server: uvicorn.Server) -> None:
@@ -70,7 +107,8 @@ async def serve(configs: list[uvicorn.Config]) -> int:
             for other in servers:
                 other.should_exit = True
 
-    await asyncio.gather(*(serve_one(server) for server in servers))
+    with _stop_all_on_signal(servers):
+        await asyncio.gather(*(serve_one(server) for server in servers))
     return exit_codes[0] if exit_codes else 0
 
 

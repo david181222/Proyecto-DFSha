@@ -1,4 +1,4 @@
-"""Pruebas de FakeEtcd (tests/fakes.py) en lo que agregó la tarea 11: keepalive, lease_keys y lock con espera.
+"""Pruebas de FakeEtcd (tests/fakes.py): keepalive, lease_keys y lock con espera (tarea 11), y elección (tarea 19).
 
 FakeEtcd debe portarse como Etcd en lo que usan las rutas. Lo mismo se comprueba contra un
 etcd real en tests/test_etcd_integration.py y tests/test_metaserver_integration.py.
@@ -83,3 +83,30 @@ async def test_leader_is_the_oldest_candidate_or_none():
     etcd.seed("/election/leader/7a00000000000002", b"meta2")
     etcd.seed("/election/leader/694d8a1c2e3b4f01", b"meta1")  # va antes en orden de clave, pero llegó después
     assert (await etcd.leader("/election/leader")).value == b"meta2"
+
+
+async def test_campaign_waits_in_line_and_resign_lets_the_next_one_win():
+    etcd = FakeEtcd()
+    first, second = await etcd.lease_grant(15), await etcd.lease_grant(15)
+    leader_key = await etcd.campaign("/election/leader", first, b"meta1")
+    assert leader_key.key == lock_key("/election/leader", first)
+    waiting = asyncio.create_task(etcd.campaign("/election/leader", second, b"meta2"))
+    await asyncio.sleep(0.05)
+    assert not waiting.done()
+    assert (await etcd.leader("/election/leader")).value == b"meta1"
+
+    await etcd.resign(leader_key)
+
+    assert (await asyncio.wait_for(waiting, 1)).lease == second
+    assert (await etcd.leader("/election/leader")).value == b"meta2"
+
+
+async def test_campaign_whose_lease_ends_while_waiting_raises_lease_not_found():
+    etcd = FakeEtcd()
+    first, second = await etcd.lease_grant(15), await etcd.lease_grant(15)
+    await etcd.campaign("/election/leader", first, b"meta1")
+    waiting = asyncio.create_task(etcd.campaign("/election/leader", second, b"meta2"))
+    await asyncio.sleep(0.05)
+    await etcd.lease_revoke(second)
+    with pytest.raises(LeaseNotFound):
+        await asyncio.wait_for(waiting, 1)

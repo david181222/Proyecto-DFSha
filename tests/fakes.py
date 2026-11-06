@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from dfs_common.config import Settings
 from dfs_common.security import create_jwt
 from metaserver.deps import get_etcd, get_jwt_secret, get_pass_key, get_settings
-from metaserver.etcd import KeyValue, LeaseNotFound, TxnResult, _encode, lock_key, prefix_end
+from metaserver.etcd import KeyValue, LeaderKey, LeaseNotFound, TxnResult, _encode, lock_key, prefix_end
 from metaserver.internal_api import app as metaserver_internal
 from metaserver.public_api import app as metaserver_public
 
@@ -40,11 +40,12 @@ def _unb64(text: str) -> bytes:
 
 
 class FakeEtcd:
-    """etcd en memoria con la interfaz de metaserver.etcd.Etcd: lo que usan las tareas 07, 08 y 11.
+    """etcd en memoria con la interfaz de metaserver.etcd.Etcd: lo que usan las tareas 07, 08, 11 y 19.
 
     Imita lo que importa de etcd: una revisión global que sube con cada escritura;
     create_revision, mod_revision y version por clave; leases que al revocarse borran sus
-    claves; transacciones atómicas con comparación de rango; y el lock, con espera o sin ella.
+    claves; transacciones atómicas con comparación de rango; el lock, con espera o sin ella; y la
+    elección de líder, con la misma fila que el lock.
     Las comparaciones y operaciones de txn llegan como las arman compare(), op_put(),
     op_delete() y op_range(), en el formato de la pasarela (base64), y aquí se decodifican.
 
@@ -218,6 +219,26 @@ class FakeEtcd:
                 await self.delete(key)
                 return None
             await asyncio.sleep(self.LOCK_POLL_S)
+
+    async def campaign(self, name: str, lease_id: int, value: dict | bytes) -> LeaderKey:
+        """Como /v3/election/campaign: pone {name}/{lease en hex} atada al lease y espera a ser el más antiguo.
+
+        Revisa la fila cada LOCK_POLL_S. Si su clave desaparece porque el lease se revocó, LeaseNotFound.
+        """
+        key = lock_key(name, lease_id)
+        await self.put(key, value, lease=lease_id)
+        while True:
+            candidates = await self.get_prefix(f"{name}/")
+            mine = next((kv for kv in candidates if kv.key == key), None)
+            if mine is None:
+                raise LeaseNotFound("etcdserver: requested lease not found")
+            if min(candidates, key=lambda kv: kv.create_revision).key == key:
+                return LeaderKey(name=name, key=key, rev=mine.create_revision, lease=lease_id)
+            await asyncio.sleep(self.LOCK_POLL_S)
+
+    async def resign(self, leader_key: LeaderKey) -> None:
+        """Como /v3/election/resign: borra la clave del líder y gana el siguiente de la fila."""
+        await self.delete(leader_key.key)
 
     async def leader(self, name: str) -> KeyValue | None:
         """Como /v3/election/leader: el candidato más antiguo bajo {name}/ (menor create_revision), o None."""
