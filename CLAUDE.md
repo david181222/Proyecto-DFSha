@@ -34,6 +34,7 @@ pyproject.toml          dependencias; instalación con pip install -e ".[dev]"
 .gitattributes          finales LF en lo que corre dentro de Linux (Dockerfile, .yml, .sh)
 Dockerfile              una sola imagen para MetaServer, DataNode y cliente
 compose.local.yml       sistema completo en un PC, con TLS 1.3 y mTLS (README, "Correr en local")
+compose.aws.yml         una VM de AWS: perfiles control, data y client (lo usa infra/deploy.sh)
 docs/
   enunciado.pdf
   DFSha_FaseII_Matriz_y_Decisiones_v5.pdf    documento oficial de decisiones
@@ -46,7 +47,7 @@ src/
   metaserver/           MetaServer: API pública (8443) e interna (8444)
   datanode/             DataNode: API pública (9443) e interna (9444)
   dfs_client/           cliente y CLI dfs
-infra/                  scripts de AWS (DA-15)
+infra/                  scripts de AWS (DA-15): create, allow-ssh, destroy, deploy y ssh; config.sh
 scripts/                export_openapi.py (OpenAPI) y gen_secrets.py (CA, certificados y secretos)
 secrets/                secretos generados en local; git lo ignora
 tests/
