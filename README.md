@@ -27,6 +27,7 @@ Equipo: Edwin Vélez, José Díaz y Santiago Martínez.
 | 20 | Limpieza de manifiestos vencidos y bloques sin uso, con la regla del instante T (`src/metaserver/gc.py`) |
 | 22 | Integración local: el sistema completo en Compose pasa el script de humo con 512 MiB (`scripts/pruebas/smoke.sh`, ver "Correr en local", paso 6); evidencia y medición de referencia en `docs/pruebas/22-integracion-local.md` |
 | 23 | Scripts de AWS con la AWS CLI (`infra/`): `create.sh`, `allow-ssh.sh`, `destroy.sh` y `deploy.sh` (DA-15), más `ssh.sh` para entrar a una VM, con la configuración común en `config.sh`; y `compose.aws.yml`, con un perfil por tipo de VM. Cómo se usa cada uno está en su comentario inicial; los pasos probados en AWS llegan con la tarea 24 |
+| 24 | Primer despliegue en las 5 VMs de AWS: las siete comprobaciones pasan, con etcd, líder, humo de 512 MiB desde la VM5, red, reinicio y nueva sesión (`docs/pruebas/24-despliegue-aws.md`). Los pasos están en "Despliegue en AWS" |
 
 Ya funcionan todas las rutas de las cuatro APIs. Un DataNode guarda, entrega y reenvía bloques cifrados, se registra, late y cumple las órdenes del líder. Las decisiones de la tarea 15 están en el docstring de `src/datanode/agent.py`. Las decisiones de comportamiento de las tareas 06 a 08 están en la sección 11 de `docs/contratos.md`, y las de las tareas 09 y 10, en la sección 12. Las de la tarea 11 no cambian el contrato y están en el docstring de `src/metaserver/locks.py`; los cambios y decisiones de la tarea 12, en la sección 13; las de la tarea 13, en los docstrings de `datanodes.py`, `metaservers.py` y `status.py`; las de la tarea 18, en el de `src/dfs_client/files.py`; las de la tarea 19, en el de `leader.py`; las de la tarea 20, en el de `gc.py`; y las de la tarea 23, en los comentarios iniciales de `infra/deploy.sh`, `infra/lib.sh` y `compose.aws.yml`.
 
@@ -265,6 +266,85 @@ El comentario del inicio del script explica las demás opciones, como `--env aws
 docker compose -f compose.local.yml down      # conserva los datos de etcd y de los DataNodes
 docker compose -f compose.local.yml down -v   # además borra los volúmenes con los datos
 ```
+
+## Despliegue en AWS
+
+El sistema corre en 5 VMs t3.small de us-east-1 (DA-13) y se maneja con los scripts de `infra/` (DA-15):
+
+| VM | Zona | Corre |
+|---|---|---|
+| vm1, vm2, vm3 | us-east-1a, 1b, 1c | etcd, MetaServer y DataNode |
+| vm4 | us-east-1b | el cuarto DataNode |
+| vm5 | us-east-1a | el cliente `dfs` y las pruebas |
+
+Cada integrante despliega en su propio Learner Lab, con su presupuesto: los scripts no tienen nada de una cuenta concreta. Las VMs se encuentran por sus etiquetas, y las IP se leen cada vez. Los pasos de abajo son los que se usaron en la tarea 24 (`docs/pruebas/24-despliegue-aws.md`). En Windows, todos los comandos van en una terminal de WSL (Ubuntu), desde la raíz del repositorio.
+
+**1. Preparar WSL (una sola vez).**
+
+- AWS CLI v2: sigue https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html (Linux x86_64).
+- Python con `cryptography`, que usa `scripts/gen_secrets.py`: `sudo apt install python3-cryptography`.
+- `ssh`, `scp`, `curl` y `git` ya vienen con Ubuntu.
+
+**2. Credenciales y llave.**
+
+1. En el Learner Lab, pulsa Start Lab y espera a que el círculo de AWS quede en verde.
+2. Pulsa AWS Details y, junto a "AWS CLI", Show. Copia el bloque completo, desde `[default]`, en `~/.aws/credentials`, reemplazando lo que había (`nano ~/.aws/credentials`, pegar, Ctrl+O, Enter y Ctrl+X). Estas credenciales cambian en cada sesión.
+3. Solo la primera vez: en AWS Details, Download PEM. Copia la llave a WSL, sin `sudo`, y déjala solo para ti. Si la copiaste con `sudo`, `sudo chown $USER: ~/.ssh/labsuser.pem`.
+
+   ```bash
+   cp /mnt/c/Users/<tu usuario de Windows>/Downloads/labsuser.pem ~/.ssh/labsuser.pem
+   chmod 400 ~/.ssh/labsuser.pem
+   ```
+
+4. Comprueba las credenciales: `aws sts get-caller-identity` debe responder sin error.
+
+**3. Crear las VMs (una sola vez).** Crea el grupo de seguridad y las 5 VMs, con discos gp3 cifrados, y abre el SSH a tu IP. Tarda alrededor de un minuto. Al arrancar, cada VM instala Docker y clona este repositorio.
+
+```bash
+./infra/create.sh
+```
+
+**4. Desplegar.** Genera en `secrets/aws/` (git lo ignora) la CA, los certificados con las IP privadas reales y los secretos. Después copia a cada VM solo lo suyo, monta el disco de etcd, levanta los contenedores y comprueba la salud. Termina con una lista de `ok` y el `dfs status` del sistema.
+
+```bash
+./infra/deploy.sh                       # rama main y tiempos normales de DA-16
+./infra/deploy.sh --ref otra-rama       # otra rama o commit, que ya esté en GitHub
+DFS_W=3 ./infra/deploy.sh               # valores de DA-16 distintos, sin tocar el código
+./infra/deploy.sh --times pruebas.env   # o desde un archivo con líneas DFS_X=valor
+```
+
+Para actualizar el código después de un cambio en GitHub, se corre `./infra/deploy.sh` otra vez: reutiliza los secretos y los datos.
+
+**5. Usar el clúster.**
+
+```bash
+./infra/deploy.sh --check                                # solo la comprobación de salud
+./infra/ssh.sh vm5 scripts/pruebas/smoke.sh --env aws    # prueba de humo, 512 MiB
+./infra/ssh.sh vm5                                       # entrar a la VM del cliente
+./infra/ssh.sh vm4 docker compose stop dn                # detener dn4 (pruebas de fallos)
+./infra/ssh.sh vm4 docker compose start dn
+```
+
+Dentro de una VM, en `~/dfsha`, basta `docker compose ps`, `docker compose logs --tail 50 meta` o `docker compose stop dn`: el `.env` que escribió `deploy.sh` dice qué archivo y qué perfil usar. En la VM5, el cliente se usa como en local, sin `-f compose.local.yml`: `docker compose exec client dfs login --user admin`. La contraseña está en `secrets/aws/admin_password`, tanto en tu máquina como en la VM5.
+
+**6. Al terminar de trabajar, End Lab.** Las VMs se detienen y los datos se conservan. Los discos cuestan unos US$9 al mes aunque estén detenidos; encendido, el clúster cuesta unos US$0,13 por hora.
+
+**Retomar el clúster en una sesión nueva**
+
+1. Start Lab: las VMs arrancan solas, y sus contenedores vuelven solos.
+2. Renueva `~/.aws/credentials` (paso 2, punto 2).
+3. `./infra/allow-ssh.sh`: si cambió tu IP pública, deja el SSH abierto solo a la nueva.
+4. `./infra/deploy.sh --check`.
+
+Si algo no está sano:
+
+- **"no responde por SSH":** la VM puede seguir arrancando; espera un minuto. Si persiste, corre `./infra/allow-ssh.sh` otra vez.
+- **etcd sin sus 3 miembros sanos:** `./infra/ssh.sh vm1 docker compose ps`, y `docker compose logs --tail 50 etcd` en la VM del miembro que falla. También `mountpoint /srv/dfsha/etcd` en esa VM: el disco de etcd tiene que estar montado.
+- **Un MetaServer o un DataNode que no responde:** `./infra/ssh.sh vmN docker compose ps` y `docker compose logs --tail 50 meta` (o `dn`). Al arrancar, el MetaServer se reinicia solo hasta que etcd tiene mayoría; espera un minuto y repite `--check`.
+- **Durante los primeros 5 minutos de la sesión,** el líder nuevo no ordena copias (`DFS_LEADER_GRACE_S`, DA-12): bloques con menos de 3 copias en ese lapso no son un error.
+- **Si sigue mal,** `./infra/deploy.sh` otra vez: no regenera los secretos ni borra datos.
+
+**Borrar todo.** `./infra/destroy.sh` lista lo que va a borrar y pide confirmación: VMs, discos, grupo de seguridad y `secrets/aws/`. No se puede deshacer, y todavía no se ha usado en AWS (en la tarea 24 el clúster se conserva). Para recrear una VM, el camino es borrar, crear y desplegar de cero, porque una VM nueva tiene otra IP privada.
 
 ## Seguridad del repositorio
 

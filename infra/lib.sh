@@ -56,6 +56,8 @@ require_ssh_key() {
   local mode
   mode=$(stat -c %a "$SSH_KEY")
   [[ $mode == 400 || $mode == 600 ]] || die "la llave $SSH_KEY tiene permisos $mode y ssh la rechaza. Corre: chmod 400 $SSH_KEY"
+  # Pasa si se copió con sudo: queda a nombre de root y, con permisos 400, este usuario no la lee.
+  [[ -r $SSH_KEY ]] || die "no puedo leer la llave $SSH_KEY: es de $(stat -c %U "$SSH_KEY") y este usuario es $(id -un). Corre: sudo chown $(id -un): $SSH_KEY && chmod 400 $SSH_KEY"
 }
 
 # Llena VM_ID, VM_STATE, VM_PUBLIC_IP y VM_PRIVATE_IP con las VMs de DFSha que no están

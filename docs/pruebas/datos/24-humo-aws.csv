@@ -1,0 +1,7 @@
+fecha,entorno,commit,operacion,tamano_mib,clientes,w,repeticion,segundos,mib_s,sha_ok
+2026-11-06T21:34:27Z,aws,adee699,put,512,1,2,1,8.94,57.3,true
+2026-11-06T21:34:27Z,aws,adee699,get,512,1,2,1,8.98,57.0,true
+2026-11-06T21:35:04Z,aws,adee699,put,512,1,2,2,9.02,56.8,true
+2026-11-06T21:35:04Z,aws,adee699,get,512,1,2,2,5.61,91.2,true
+2026-11-06T21:35:35Z,aws,adee699,put,512,1,2,3,8.75,58.5,true
+2026-11-06T21:35:35Z,aws,adee699,get,512,1,2,3,5.50,93.1,true
