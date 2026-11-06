@@ -1,0 +1,193 @@
+# DFSha · despliegue en AWS, una VM a la vez (tarea 23; DA-13, DA-15)
+#
+# Cada VM corre una parte del sistema según su perfil:
+#   control  VM1, VM2 y VM3: etcd, MetaServer y DataNode
+#   data     VM4: el cuarto DataNode
+#   client   VM5: el cliente dfs y las pruebas
+#
+# No se usa a mano en un PC. infra/deploy.sh escribe en cada VM ~/dfsha/.env (git lo ignora) con
+# COMPOSE_FILE=compose.aws.yml, COMPOSE_PROFILES, los nombres de sus nodos (ETCD_NAME, META_ID y
+# DN_ID), su IP privada y su zona, las semillas, el clúster de etcd y los tiempos de DA-16. Por
+# eso, dentro de ~/dfsha basta "docker compose ps", "logs meta" o "stop dn".
+#
+# Frente a compose.local.yml: la misma imagen (Dockerfile), las mismas variables y los mismos
+# secretos en /run/secrets/, pero cada contenedor usa la red del host (network_mode: host) y la
+# IP privada de la VM en lugar de la red dfs. Los bloques x-dfs-times y el entorno de etcd son
+# copia de los de compose.local.yml: si cambias uno, cambia el otro (tests/test_infra.py compara
+# las variables de tiempo).
+#
+# Sin depends_on: cada VM levanta su etcd sin esperar a las otras, así que al primer despliegue
+# el MetaServer puede arrancar antes de que etcd tenga mayoría. Entonces termina y Docker lo
+# reinicia hasta que etcd responde (docs/contratos.md, sección 11, punto 8).
+#
+# Secretos: deploy.sh copia en ~/dfsha/secrets/aws/ solo los de la VM, con la estructura que crea
+# scripts/gen_secrets.py. Datos: los de etcd en su propio disco, montado en /srv/dfsha/etcd
+# (DA-13); los bloques del DataNode, en /srv/dfsha/data del disco principal.
+
+x-dfs-times: &dfs-times
+  DFS_BLOCK_MIB: ${DFS_BLOCK_MIB:-}
+  DFS_W: ${DFS_W:-}
+  DFS_PRIMARY_WAIT_S: ${DFS_PRIMARY_WAIT_S:-}
+  DFS_LOCK_LEASE_S: ${DFS_LOCK_LEASE_S:-}
+  DFS_HEARTBEAT_S: ${DFS_HEARTBEAT_S:-}
+  DFS_NODE_LEASE_S: ${DFS_NODE_LEASE_S:-}
+  DFS_REREPLICATE_AFTER_S: ${DFS_REREPLICATE_AFTER_S:-}
+  DFS_LEADER_GRACE_S: ${DFS_LEADER_GRACE_S:-}
+  DFS_RETENTION_S: ${DFS_RETENTION_S:-}
+  DFS_GC_INTERVAL_S: ${DFS_GC_INTERVAL_S:-}
+  DFS_GC_MIN_AGE_S: ${DFS_GC_MIN_AGE_S:-}
+  DFS_LOCK_RENEW_S: ${DFS_LOCK_RENEW_S:-}
+  DFS_GC_CLOCK_MARGIN_S: ${DFS_GC_CLOCK_MARGIN_S:-}
+  DFS_LEADER_SCAN_S: ${DFS_LEADER_SCAN_S:-}
+  DFS_JWT_TTL_S: ${DFS_JWT_TTL_S:-}
+  DFS_PASS_TTL_S: ${DFS_PASS_TTL_S:-}
+
+# Los logs de Docker rotan para no llenar el disco de 20 GiB en pruebas largas.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+x-dfs: &dfs
+  build: .
+  image: dfsha:aws
+  restart: unless-stopped
+  network_mode: host
+  logging: *logging
+
+services:
+  # --- etcd (DA-01, DA-13). Cada variable ETCD_X equivale al flag --x de etcd. ---
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.35
+    profiles: [control]
+    restart: unless-stopped
+    network_mode: host
+    logging: *logging
+    healthcheck:
+      # Forma exec: la imagen no trae shell. etcdctl toma los ETCDCTL_* de abajo.
+      test: ["CMD", "/usr/local/bin/etcdctl", "endpoint", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    environment:
+      ETCD_NAME: ${ETCD_NAME:-}
+      ETCD_DATA_DIR: /etcd-data
+      ETCD_LISTEN_CLIENT_URLS: https://0.0.0.0:2379
+      ETCD_LISTEN_PEER_URLS: https://0.0.0.0:2380
+      ETCD_ADVERTISE_CLIENT_URLS: https://${DFS_NODE_IP:-}:2379
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: https://${DFS_NODE_IP:-}:2380
+      ETCD_INITIAL_CLUSTER: ${ETCD_INITIAL_CLUSTER:-}
+      ETCD_INITIAL_CLUSTER_STATE: new
+      ETCD_INITIAL_CLUSTER_TOKEN: dfsha-aws
+      # TLS hacia los clientes (los MetaServers): solo entra un certificado firmado por la CA propia.
+      ETCD_CERT_FILE: /run/secrets/tls.crt
+      ETCD_KEY_FILE: /run/secrets/tls.key
+      ETCD_TRUSTED_CA_FILE: /run/secrets/ca.crt
+      ETCD_CLIENT_CERT_AUTH: "true"
+      # TLS entre los 3 nodos de etcd, con el mismo certificado.
+      ETCD_PEER_CERT_FILE: /run/secrets/tls.crt
+      ETCD_PEER_KEY_FILE: /run/secrets/tls.key
+      ETCD_PEER_TRUSTED_CA_FILE: /run/secrets/ca.crt
+      ETCD_PEER_CLIENT_CERT_AUTH: "true"
+      # DA-13: evita elecciones de líder por un disco lento.
+      ETCD_HEARTBEAT_INTERVAL: "250"
+      ETCD_ELECTION_TIMEOUT: "2500"
+      # Para etcdctl dentro del contenedor (healthcheck y docker compose exec).
+      ETCDCTL_API: "3"
+      ETCDCTL_ENDPOINTS: https://127.0.0.1:2379
+      ETCDCTL_CACERT: /run/secrets/ca.crt
+      ETCDCTL_CERT: /run/secrets/tls.crt
+      ETCDCTL_KEY: /run/secrets/tls.key
+    volumes:
+      # La carpeta data solo existe dentro del disco de etcd: si ese disco no se montó, etcd no
+      # arranca, en vez de empezar con datos vacíos en el disco principal.
+      - type: bind
+        source: /srv/dfsha/etcd/data
+        target: /etcd-data
+        bind:
+          create_host_path: false
+    secrets:
+      - {source: ca_crt, target: ca.crt}
+      - {source: etcd_tls_crt, target: tls.crt}
+      - {source: etcd_tls_key, target: tls.key}
+
+  # --- MetaServer: CA, su certificado, jwt_secret, pass_key y admin_password ---
+  meta:
+    <<: *dfs
+    profiles: [control]
+    command: ["python", "-m", "metaserver"]
+    environment:
+      <<: *dfs-times
+      DFS_NODE_ID: ${META_ID:-}
+      DFS_NODE_IP: ${DFS_NODE_IP:-}
+      DFS_ZONE: ${DFS_ZONE:-}
+      DFS_META_SEEDS: ${DFS_META_SEEDS:-}
+      DFS_ETCD_ENDPOINTS: ${DFS_ETCD_ENDPOINTS:-}
+      DFS_ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+    secrets:
+      - {source: ca_crt, target: ca.crt}
+      - {source: meta_tls_crt, target: tls.crt}
+      - {source: meta_tls_key, target: tls.key}
+      - {source: jwt_secret, target: jwt_secret}
+      - {source: pass_key, target: pass_key}
+      - {source: admin_password, target: admin_password}
+
+  # --- DataNode: CA, su certificado, pass_key y su node_key (DA-09). Bloques en /data. ---
+  dn:
+    <<: *dfs
+    profiles: [control, data]
+    command: ["python", "-m", "datanode"]
+    environment:
+      <<: *dfs-times
+      DFS_NODE_ID: ${DN_ID:-}
+      DFS_NODE_IP: ${DFS_NODE_IP:-}
+      DFS_ZONE: ${DFS_ZONE:-}
+      DFS_META_SEEDS: ${DFS_META_SEEDS:-}
+    volumes: [/srv/dfsha/data:/data]
+    secrets:
+      - {source: ca_crt, target: ca.crt}
+      - {source: dn_tls_crt, target: tls.crt}
+      - {source: dn_tls_key, target: tls.key}
+      - {source: pass_key, target: pass_key}
+      - {source: dn_node_key, target: node_key}
+
+  # --- Cliente: solo la CA. Queda esperando comandos (docker compose exec client dfs ...). ---
+  # Lleva los mismos tiempos que los servidores: DFS_BLOCK_MIB tiene que coincidir con el del
+  # MetaServer, y de DFS_LOCK_RENEW_S y DFS_PRIMARY_WAIT_S salen los timeouts del cliente.
+  client:
+    <<: *dfs
+    profiles: [client]
+    command: ["sleep", "infinity"]
+    environment:
+      <<: *dfs-times
+      DFS_ZONE: ${DFS_ZONE:-}
+      DFS_META_SEEDS: ${DFS_META_SEEDS:-}
+    secrets:
+      - {source: ca_crt, target: ca.crt}
+
+# Cada contenedor los ve en /run/secrets/<target>. Compose solo lee los de los servicios del
+# perfil activo, así que en cada VM basta con los archivos que copió deploy.sh.
+secrets:
+  ca_crt:
+    file: secrets/aws/ca.crt
+  jwt_secret:
+    file: secrets/aws/jwt_secret
+  pass_key:
+    file: secrets/aws/pass_key
+  admin_password:
+    file: secrets/aws/admin_password
+  etcd_tls_crt:
+    file: secrets/aws/${ETCD_NAME:-none}/tls.crt
+  etcd_tls_key:
+    file: secrets/aws/${ETCD_NAME:-none}/tls.key
+  meta_tls_crt:
+    file: secrets/aws/${META_ID:-none}/tls.crt
+  meta_tls_key:
+    file: secrets/aws/${META_ID:-none}/tls.key
+  dn_tls_crt:
+    file: secrets/aws/${DN_ID:-none}/tls.crt
+  dn_tls_key:
+    file: secrets/aws/${DN_ID:-none}/tls.key
+  dn_node_key:
+    file: secrets/aws/${DN_ID:-none}/node_key
