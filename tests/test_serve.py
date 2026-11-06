@@ -1,10 +1,12 @@
-"""Pruebas de la tarea 05 que no necesitan Docker: TLS de las dos APIs de cada servicio."""
+"""Pruebas de la tarea 05 que no necesitan Docker: TLS de las dos APIs de cada servicio, arranque y apagado."""
 
 import importlib
 import importlib.util
+import signal
 import ssl
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -86,6 +88,52 @@ def test_a_failed_startup_ends_the_process_so_docker_restarts_it(tmp_path):
     result = subprocess.run([sys.executable, str(script)], capture_output=True, timeout=30)
     assert result.returncode == 3  # el código con que uvicorn avisa que la app no arrancó
     assert b"etcd no respondi" in result.stderr
+
+
+# Dos APIs con un lifespan que avisa por la salida cuando arranca y cuando se apaga, como las
+# del MetaServer: la pública tiene las tareas de fondo (registro y líder) y la interna no.
+TWO_LIFESPANS = """
+import asyncio
+from contextlib import asynccontextmanager
+
+import uvicorn
+from fastapi import FastAPI
+
+from dfs_common.serve import serve
+
+
+def app(name):
+    @asynccontextmanager
+    async def lifespan(app):
+        print(f"arranco {name}", flush=True)
+        yield
+        print(f"apagado {name}", flush=True)
+
+    return FastAPI(lifespan=lifespan)
+
+
+configs = [uvicorn.Config(app("publica"), port=0), uvicorn.Config(app("interna"), port=0)]
+raise SystemExit(asyncio.run(serve(configs)))
+"""
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows no le envía SIGTERM a un proceso hijo")
+def test_one_sigterm_shuts_down_both_apis_with_their_lifespan(tmp_path):
+    """docker stop envía SIGTERM: las dos APIs deben correr su apagado (el líder hace resign, tarea 19)."""
+    script = tmp_path / "two_lifespans.py"
+    script.write_text(TWO_LIFESPANS, encoding="utf-8")
+    process = subprocess.Popen([sys.executable, str(script)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        started = sorted(process.stdout.readline() for _ in range(2))
+        assert started == [b"arranco interna\n", b"arranco publica\n"]
+        time.sleep(0.5)  # que los dos servidores terminen de arrancar
+        process.send_signal(signal.SIGTERM)
+        out, err = process.communicate(timeout=30)
+    finally:
+        process.kill()
+    assert b"apagado publica" in out, err.decode()
+    assert b"apagado interna" in out, err.decode()
+    assert process.returncode == 0
 
 
 def test_main_modules_read_nothing_on_import(monkeypatch):

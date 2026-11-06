@@ -12,6 +12,7 @@ Cada prueba usa un usuario y un file_id propios y borra sus claves al terminar.
 import asyncio
 import contextlib
 import os
+import time
 import uuid
 
 import anyio
@@ -440,22 +441,13 @@ def test_register_and_heartbeat(environment):
 
 
 def test_admin_status_shows_the_leader_of_a_real_election(environment, client):
-    name = "/election/leader"
-
-    async def campaign(etcd):
-        lease_id = await etcd.lease_grant(LEASE_S)
-        return lease_id, await etcd.campaign(name, lease_id, environment.encode())  # el meta_id como valor
-
-    async def resign(etcd):
-        await etcd.resign(won)
-        with contextlib.suppress(LeaseNotFound):
-            await etcd.lease_revoke(lease_id)
-
-    lease_id, won = with_etcd(campaign)
-    try:
+    # El lifespan hace campaña con su meta_id (tarea 19). Puede quedar detrás de un candidato de
+    # una prueba anterior hasta que el lease de ese candidato venza (DFS_NODE_LEASE_S).
+    for _ in range(40):
         response = client.get("/api/v1/admin/status", headers=bearer("admin", admin=True))
         assert response.status_code == 200, response.json()
-        assert response.json()["leader"] == environment
-        assert environment in [meta["meta_id"] for meta in response.json()["metaservers"]]
-    finally:
-        with_etcd(resign)
+        if response.json()["leader"] == environment:
+            break
+        time.sleep(0.5)
+    assert response.json()["leader"] == environment
+    assert environment in [meta["meta_id"] for meta in response.json()["metaservers"]]
