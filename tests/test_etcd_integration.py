@@ -217,3 +217,26 @@ async def test_election_campaign_leader_and_resign(etcd, base):
         assert await etcd.leader(name) is None
     finally:
         await revoke_all(etcd, first, second)
+
+
+async def test_election_leader_whose_lease_ends_lets_the_next_candidate_win(etcd, base):
+    """Lo que usa el líder (tarea 19): si el lease del líder vence, gana el siguiente de la fila."""
+    name = f"{base}/election/leader"
+    first, second = [await etcd.lease_grant(LEASE_S) for _ in range(2)]
+    try:
+        await etcd.campaign(name, first, b"meta1")
+        result = {}
+
+        async def campaign_second():
+            result["won"] = await etcd.campaign(name, second, b"meta2")
+
+        with anyio.fail_after(10):
+            async with anyio.create_task_group() as tasks:
+                tasks.start_soon(campaign_second)
+                await anyio.sleep(0.5)
+                assert result == {}
+                await etcd.lease_revoke(first)  # como si el lease de meta1 venciera
+        assert result["won"].lease == second
+        assert (await etcd.leader(name)).value == b"meta2"
+    finally:
+        await revoke_all(etcd, first, second)

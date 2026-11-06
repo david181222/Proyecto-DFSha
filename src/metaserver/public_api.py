@@ -14,7 +14,8 @@ subidas (tarea 12); y la lista de MetaServers y /admin/status (tarea 13).
 
 Al arrancar, el lifespan conecta con etcd, lee la clave del JWT y la de los pases, crea el
 primer administrador y registra este MetaServer en /nodes/meta/, con una tarea de fondo que
-lo renueva (metaserver.deps, metaserver.auth y metaserver.metaservers). Se arranca con
+lo renueva (metaserver.deps, metaserver.auth y metaserver.metaservers). Otra tarea de fondo
+hace campaña para ser líder y, si gana, repone copias (metaserver.leader). Se arranca con
 python -m metaserver.
 """
 
@@ -52,7 +53,7 @@ from dfs_common.models import (
     check_dfs_path,
 )
 from dfs_common.security import create_jwt
-from metaserver import auth, files, fs, locks, metaservers, status, uploads
+from metaserver import auth, files, fs, leader, locks, metaservers, status, uploads
 from metaserver.auth import CurrentUser, require_admin
 from metaserver.deps import EtcdDep, JwtSecretDep, PassKeyDep, SettingsDep, open_resources
 from metaserver.keys import user_key
@@ -501,20 +502,26 @@ def health():
 async def lifespan(app: FastAPI):
     """Al arrancar: recursos, primer administrador (sección 2) y registro de este MetaServer (DA-11).
 
-    Si etcd no responde, el arranque falla y Docker reinicia el contenedor. La renovación del
-    registro es la tarea de fondo del proceso: va aquí y no en la app interna, para correr una vez.
+    Si etcd no responde, el arranque falla y Docker reinicia el contenedor. Las tareas de fondo
+    del proceso van aquí y no en la app interna, para correr una sola vez: la renovación del
+    registro y la candidatura a líder (tarea 19, DA-12).
     """
     async with open_resources(app):
         etcd, settings = app.state.etcd, app.state.settings
         await auth.create_first_admin(etcd, settings)
         lease_id = await metaservers.register_self(etcd, settings)
-        renewer = asyncio.create_task(metaservers.keep_registered(etcd, settings, lease_id, settings.heartbeat_s))
+        background = [
+            asyncio.create_task(metaservers.keep_registered(etcd, settings, lease_id, settings.heartbeat_s)),
+            asyncio.create_task(leader.run_leader(etcd, settings)),
+        ]
         try:
             yield
         finally:
-            renewer.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await renewer
+            for task in background:
+                task.cancel()
+            for task in background:
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
 
 
 app = create_app(
