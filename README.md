@@ -22,10 +22,11 @@ Equipo: Edwin Vélez, José Díaz y Santiago Martínez.
 | 15 | El DataNode se registra, late y cumple las órdenes `copy` y `delete` del líder, y crea su `disk_id` (`src/datanode/agent.py`) |
 | 16 | Cliente `dfs`: `login`, `logout`, `pwd`, `cd`, `ls`, `stat [--blocks]`, `mkdir`, `rmdir`, `rm`, `useradd` y `status` (`src/dfs_client/`, ver "Correr en local", paso 5) |
 | 17 | `dfs put` y `dfs get` en paralelo, con reintentos, `realloc` y renovación del lock (`transfer.py` y `locks.py`) |
+| 18 | `open`, `read`, `write` y `close` con la semántica de RF3 y DA-14 (`files.py`), y `dfs shell` para probarlos con descriptores (`shell.py`) |
 | 19 | Líder: elección en etcd, re-réplica, terceras copias y copias que sobran (`src/metaserver/leader.py`) |
 | 20 | Limpieza de manifiestos vencidos y bloques sin uso, con la regla del instante T (`src/metaserver/gc.py`) |
 
-Ya funcionan todas las rutas de las cuatro APIs. Un DataNode guarda, entrega y reenvía bloques cifrados, se registra, late y cumple las órdenes del líder. Las decisiones de la tarea 15 están en el docstring de `src/datanode/agent.py`. Las decisiones de comportamiento de las tareas 06 a 08 están en la sección 11 de `docs/contratos.md`, y las de las tareas 09 y 10, en la sección 12. Las de la tarea 11 no cambian el contrato y están en el docstring de `src/metaserver/locks.py`; los cambios y decisiones de la tarea 12, en la sección 13; las de la tarea 13, en los docstrings de `datanodes.py`, `metaservers.py` y `status.py`; las de la tarea 19, en el de `leader.py`; y las de la tarea 20, en el de `gc.py`.
+Ya funcionan todas las rutas de las cuatro APIs. Un DataNode guarda, entrega y reenvía bloques cifrados, se registra, late y cumple las órdenes del líder. Las decisiones de la tarea 15 están en el docstring de `src/datanode/agent.py`. Las decisiones de comportamiento de las tareas 06 a 08 están en la sección 11 de `docs/contratos.md`, y las de las tareas 09 y 10, en la sección 12. Las de la tarea 11 no cambian el contrato y están en el docstring de `src/metaserver/locks.py`; los cambios y decisiones de la tarea 12, en la sección 13; las de la tarea 13, en los docstrings de `datanodes.py`, `metaservers.py` y `status.py`; las de la tarea 18, en el de `src/dfs_client/files.py`; las de la tarea 19, en el de `leader.py`; y las de la tarea 20, en el de `gc.py`.
 
 Código del MetaServer:
 
@@ -68,6 +69,8 @@ Código del cliente (`src/dfs_client/`):
 | `api.py` | `DfsApi`: una llamada por ruta del contrato; descubre los MetaServers y pasa al siguiente si uno no responde |
 | `session.py` | Sesión en `~/.dfs/session.json` (usuario, JWT y directorio actual); `Session.resolve` arma la ruta absoluta |
 | `cli.py` | Comandos `dfs` con typer; el formato de la salida está en las funciones `format_*` |
+| `files.py` | `DfsFile`: `open`, `read`, `write` y `close`; la semántica de RF3 está en su docstring |
+| `shell.py` | `dfs shell`: `open`, `read`, `write`, `writefile`, `close`, `files` y `quit` sobre descriptores |
 | `transfer.py` | `upload_version`, `fetch_block` y `download_file`: bloques en paralelo, con reintentos y verificación del SHA-256 |
 | `locks.py` | `LockKeeper`: renueva el lock en un hilo mientras se escribe y avisa si se perdió |
 
@@ -225,6 +228,16 @@ docker compose -f compose.local.yml exec client dfs put /tmp/a.bin /a.bin
 docker compose -f compose.local.yml exec client dfs stat --blocks /a.bin
 docker compose -f compose.local.yml exec client dfs get /a.bin /tmp/b.bin
 docker compose -f compose.local.yml exec client sha256sum /tmp/a.bin /tmp/b.bin
+```
+
+Abrir un archivo, leer y escribir partes y publicar al cerrar (RF3), con descriptores. En dos terminales a la vez sirve para ver la concurrencia; dentro del shell, `help` lista los comandos.
+
+```bash
+docker compose -f compose.local.yml exec client dfs shell
+# dfs> open /a.txt rw        responde el fd, por ejemplo 3
+# dfs> write 3 0 hola
+# dfs> read 3 0 100
+# dfs> close 3               publica la versión nueva
 ```
 
 `dfs --help` lista los comandos, y `dfs COMANDO --help` explica cada uno.

@@ -1,5 +1,6 @@
-"""CLI dfs: login, logout, pwd, cd, ls, stat, mkdir, rmdir, rm, useradd y status (tarea 16), y
-put y get (tarea 17, con dfs_client.transfer y dfs_client.locks).
+"""CLI dfs: login, logout, pwd, cd, ls, stat, mkdir, rmdir, rm, useradd y status (tarea 16),
+put y get (tarea 17, con dfs_client.transfer y dfs_client.locks), y shell (tarea 18, con
+dfs_client.shell y dfs_client.files).
 
 Cada comando lee la sesión (dfs_client.session), resuelve la ruta contra el directorio actual
 y llama a DfsApi. La API se obtiene con make_api, que las pruebas reemplazan por una falsa; el
@@ -22,6 +23,7 @@ from dfs_client import session
 from dfs_client.api import DEFAULT_WAIT_S, DfsApi
 from dfs_client.locks import LockKeeper
 from dfs_client.session import Session
+from dfs_client.shell import DfsShell
 from dfs_client.transfer import UploadStats, download_file, hash_file, read_block, upload_version
 from dfs_common.config import Settings
 from dfs_common.errors import DFSError, ErrorCode
@@ -353,3 +355,12 @@ def status():
     with handle_errors():
         answer = open_api(current_session()).admin_status()
     typer.echo(format_status(answer))
+
+
+@app.command()
+def shell():
+    """Shell con open, read, write y close sobre descriptores (RF3); sirve para probar con dos terminales."""
+    with handle_errors():
+        current = current_session()
+        api = open_api(current)
+    DfsShell(api, current).cmdloop()

@@ -271,7 +271,11 @@ async def test_the_same_order_received_twice_runs_once(node):
     meta.heartbeats = [orders(copy_order())]
     await agent.beat_once()
     meta.on_heartbeat = None
-    await asyncio.sleep(0.05)  # deja terminar la copia
+    # Deja terminar la copia, que lee el bloque en un hilo: hasta 2 s si la máquina está cargada.
+    for _ in range(200):
+        if agent.done_orders:
+            break
+        await asyncio.sleep(0.01)
     assert agent.done_orders == ["copia-1"]
     assert agent.queue.qsize() == 0
     assert len(peers.received) == 1
