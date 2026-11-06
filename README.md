@@ -23,8 +23,9 @@ Equipo: Edwin Vélez, José Díaz y Santiago Martínez.
 | 16 | Cliente `dfs`: `login`, `logout`, `pwd`, `cd`, `ls`, `stat [--blocks]`, `mkdir`, `rmdir`, `rm`, `useradd` y `status` (`src/dfs_client/`, ver "Correr en local", paso 5) |
 | 17 | `dfs put` y `dfs get` en paralelo, con reintentos, `realloc` y renovación del lock (`transfer.py` y `locks.py`) |
 | 19 | Líder: elección en etcd, re-réplica, terceras copias y copias que sobran (`src/metaserver/leader.py`) |
+| 20 | Limpieza de manifiestos vencidos y bloques sin uso, con la regla del instante T (`src/metaserver/gc.py`) |
 
-Ya funcionan todas las rutas de las cuatro APIs. Un DataNode guarda, entrega y reenvía bloques cifrados, se registra, late y cumple las órdenes del líder. Las decisiones de la tarea 15 están en el docstring de `src/datanode/agent.py`. Las decisiones de comportamiento de las tareas 06 a 08 están en la sección 11 de `docs/contratos.md`, y las de las tareas 09 y 10, en la sección 12. Las de la tarea 11 no cambian el contrato y están en el docstring de `src/metaserver/locks.py`; los cambios y decisiones de la tarea 12, en la sección 13; las de la tarea 13, en los docstrings de `datanodes.py`, `metaservers.py` y `status.py`; y las de la tarea 19, en el de `leader.py`.
+Ya funcionan todas las rutas de las cuatro APIs. Un DataNode guarda, entrega y reenvía bloques cifrados, se registra, late y cumple las órdenes del líder. Las decisiones de la tarea 15 están en el docstring de `src/datanode/agent.py`. Las decisiones de comportamiento de las tareas 06 a 08 están en la sección 11 de `docs/contratos.md`, y las de las tareas 09 y 10, en la sección 12. Las de la tarea 11 no cambian el contrato y están en el docstring de `src/metaserver/locks.py`; los cambios y decisiones de la tarea 12, en la sección 13; las de la tarea 13, en los docstrings de `datanodes.py`, `metaservers.py` y `status.py`; las de la tarea 19, en el de `leader.py`; y las de la tarea 20, en el de `gc.py`.
 
 Código del MetaServer:
 
@@ -45,6 +46,7 @@ Código del MetaServer:
 | `metaservers.py` | Autorregistro de este MetaServer y lista de MetaServers vivos |
 | `status.py` | `GET /admin/status`: `build_admin_status` arma la respuesta |
 | `leader.py` | Elección del líder y sus vueltas; `plan_repairs` decide qué órdenes escribir |
+| `gc.py` | Limpieza que corre el líder; `plan_gc` decide qué manifiestos y bloques borrar |
 | `keys.py` | Formato de las claves de etcd (sección 8 del contrato) |
 
 Código del DataNode:

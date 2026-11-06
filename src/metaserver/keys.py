@@ -40,6 +40,9 @@ def upload_key(upload_id: str) -> str:
 
 BLOCKS_PREFIX = "/blocks/"
 
+# Manifiestos de todas las versiones: /files/{file_id}/v/{n} (la limpieza los recorre, tarea 20).
+FILES_PREFIX = "/files/"
+
 # DataNodes vivos: /nodes/dn/{node_id} = {ip, public_port, internal_port, zone, free_bytes}, atada a su lease.
 DATANODES_PREFIX = "/nodes/dn/"
 

@@ -9,6 +9,9 @@ tiempo en la fila. El líder revisa el estado cada DFS_LEADER_SCAN_S y ordena lo
 - borrar las órdenes copy atascadas, para que la siguiente vuelta cree otra, y mandarle al
   destino una delete por si alcanzó a recibir la copia sin que quedara registrada.
 
+Además corre la limpieza (metaserver.gc, tarea 20) cada DFS_GC_INTERVAL_S, desde la primera
+vuelta. La limpieza no espera DFS_LEADER_GRACE_S: esa espera es solo para la re-réplica.
+
 Las reglas viven en plan_repairs, una función pura que recibe una foto del estado
 (Snapshot), la hora y lo que el líder recuerda, y devuelve qué escribir (Plan). El bucle solo
 lee etcd, llama a plan_repairs y escribe. Así cada regla se prueba sin etcd y sin esperar.
@@ -40,6 +43,7 @@ from dataclasses import dataclass, field
 
 from dfs_common.config import Settings
 from dfs_common.errors import DFSError
+from metaserver import gc
 from metaserver.blocks import MAX_TRIES, live_zones
 from metaserver.etcd import Etcd, EtcdError, LeaseNotFound, compare, op_delete, op_put
 from metaserver.keys import BLOCKS_PREFIX, ELECTION_NAME, ORDERS_PREFIX, block_key, order_key
@@ -136,6 +140,7 @@ class LeaderState:
 
     won_at: float
     missing_since: dict[str, float] = field(default_factory=dict)
+    last_gc: float | None = None  # cuándo corrió la última limpieza; None: todavía no corrió
 
 
 # --- Reglas (funciones puras) ---
@@ -355,6 +360,14 @@ async def _apply_trim(
     logger.warning("líder: el bloque de una copia que sobra cambió %s veces; queda para la siguiente vuelta", MAX_TRIES)
 
 
+async def leader_round(etcd: Etcd, settings: Settings, state: LeaderState, now: float) -> None:
+    """Una vuelta completa del líder: la reparación de copias y, si ya le toca, la limpieza."""
+    await repair_round(etcd, settings, state, now)
+    if state.last_gc is None or now - state.last_gc >= settings.gc_interval_s:
+        await gc.gc_round(etcd, settings, now)
+        state.last_gc = now
+
+
 async def repair_round(etcd: Etcd, settings: Settings, state: LeaderState, now: float) -> Plan:
     """Una vuelta del líder: lee, decide con plan_repairs y escribe."""
     snapshot = await read_snapshot(etcd)
@@ -402,7 +415,7 @@ async def _lead_while_lease_lives(etcd: Etcd, settings: Settings, clock: Callabl
         try:
             while not lost.is_set() and await _still_leader(etcd, leader_key):
                 try:
-                    await repair_round(etcd, settings, state, clock())
+                    await leader_round(etcd, settings, state, clock())
                 except (DFSError, EtcdError) as exc:
                     logger.warning("líder: la vuelta falló; se intenta en la siguiente: %s", exc)
                 await sleep(settings.leader_scan_s)
