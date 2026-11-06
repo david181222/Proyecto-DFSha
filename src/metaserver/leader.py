@@ -6,7 +6,8 @@ tiempo en la fila. El líder revisa el estado cada DFS_LEADER_SCAN_S y ordena lo
 
 - una orden copy para cada bloque con menos de 3 copias vivas (re-réplica y tercera copia);
 - una orden delete para la copia que sobra cuando vuelve un DataNode;
-- borrar las órdenes copy atascadas, para que la siguiente vuelta cree otra.
+- borrar las órdenes copy atascadas, para que la siguiente vuelta cree otra, y mandarle al
+  destino una delete por si alcanzó a recibir la copia sin que quedara registrada.
 
 Las reglas viven en plan_repairs, una función pura que recibe una foto del estado
 (Snapshot), la hora y lo que el líder recuerda, y devuelve qué escribir (Plan). El bucle solo
@@ -40,7 +41,7 @@ from dataclasses import dataclass, field
 from dfs_common.config import Settings
 from dfs_common.errors import DFSError
 from metaserver.blocks import MAX_TRIES, live_zones
-from metaserver.etcd import Etcd, EtcdError, LeaseNotFound, compare, op_put
+from metaserver.etcd import Etcd, EtcdError, LeaseNotFound, compare, op_delete, op_put
 from metaserver.keys import BLOCKS_PREFIX, ELECTION_NAME, ORDERS_PREFIX, block_key, order_key
 from metaserver.nodes import Node, by_id, live_nodes
 
@@ -83,6 +84,7 @@ class PendingOrder:
     key: str
     node_id: str
     order: dict
+    mod_revision: int = 0
 
 
 @dataclass(frozen=True)
@@ -103,11 +105,27 @@ class Trim:
     order: dict
 
 
+@dataclass(frozen=True)
+class StaleOrder:
+    """Una orden copy atascada que se borra, con la delete para su destino si hace falta.
+
+    block es el bloque como se leyó (None si ya no existe). cleanup va a target cuando el destino
+    no está en stored_on: si el DataNode origen alcanzó a enviarle la copia pero la orden se borra
+    antes de que la reporte cumplida, esa copia no queda en stored_on; la delete la borra con la
+    regla del instante T, y si no hay copia no hace nada.
+    """
+
+    pending: PendingOrder
+    block: Block | None
+    target: str
+    cleanup: dict | None
+
+
 @dataclass
 class Plan:
     copies: list[tuple[str, dict]] = field(default_factory=list)  # (nodo origen, orden copy)
     trims: list[Trim] = field(default_factory=list)
-    stale_orders: list[str] = field(default_factory=list)  # claves de órdenes copy que se borran
+    stale_orders: list[StaleOrder] = field(default_factory=list)  # órdenes copy que se borran
     missing_since: dict[str, float] = field(default_factory=dict)
     returned: set[str] = field(default_factory=set)  # nodos que volvieron en esta vuelta
 
@@ -138,8 +156,8 @@ def plan_repairs(
     3. Un bloque necesita copia si tiene menos de 3 copias vivas y, además, su stored_on tiene
        menos de 3 nodos o alguno lleva ausente al menos DFS_REREPLICATE_AFTER_S.
     4. Se salta un bloque con una orden copy pendiente. Una copy cuyo origen o destino ya no
-       está vivo, o cuyo origen ya no tiene el bloque, está atascada: se borra y no cuenta
-       (docs/contratos.md, sección 7.3).
+       está vivo, o cuyo origen ya no tiene el bloque, está atascada: se borra (StaleOrder) y
+       la siguiente vuelta crea otra con nodos vivos (docs/contratos.md, sección 7.3).
     5. Origen: el primer nodo vivo de stored_on. Destino: un nodo vivo sin el bloque y con
        espacio, de preferencia de una zona que las copias vivas no cubren; si empatan, el menor
        node_id. Una orden por bloque y por vuelta; sin destino posible, nada.
@@ -170,8 +188,8 @@ def plan_repairs(
             or pending.node_id not in block.stored_on
         )
         if stuck:
-            plan.stale_orders.append(pending.key)
-        else:
+            plan.stale_orders.append(_stale(pending, block, now, settings, new_id))
+        if block is not None:
             with_copy_order.add((block.user, block.hash))
 
     for block in snapshot.blocks:
@@ -235,6 +253,20 @@ def plan_trim(
     return Trim(block=block, node_id=removed, order=order)
 
 
+def _stale(pending: PendingOrder, block: Block | None, now: float, settings: Settings, new_id: NewId) -> StaleOrder:
+    target = pending.order["target"]["node_id"]
+    cleanup = None
+    if block is None or target not in block.stored_on:
+        cleanup = {
+            "order_id": new_id(),
+            "type": "delete",
+            "user": pending.order["user"],
+            "hash": pending.order["hash"],
+            "written_before_ms": int(now * 1000) - settings.gc_clock_margin_s * 1000,
+        }
+    return StaleOrder(pending=pending, block=block, target=target, cleanup=cleanup)
+
+
 def _choose_target(block: Block, alive: list[str], nodes: dict[str, Node]) -> Node | None:
     covered = live_zones(alive, nodes)
     candidates = [
@@ -257,7 +289,9 @@ def _block(kv) -> Block:
 async def read_snapshot(etcd: Etcd) -> Snapshot:
     blocks = [_block(kv) for kv in await etcd.get_prefix(BLOCKS_PREFIX)]
     orders = [
-        PendingOrder(key=kv.key, node_id=kv.key.removeprefix(ORDERS_PREFIX).split("/")[0], order=kv.json())
+        PendingOrder(
+            key=kv.key, node_id=kv.key.removeprefix(ORDERS_PREFIX).split("/")[0], order=kv.json(), mod_revision=kv.mod_revision
+        )
         for kv in await etcd.get_prefix(ORDERS_PREFIX)
     ]
     return Snapshot(nodes=by_id(await live_nodes(etcd)), blocks=blocks, orders=orders)
@@ -266,18 +300,38 @@ async def read_snapshot(etcd: Etcd) -> Snapshot:
 async def apply_plan(etcd: Etcd, plan: Plan, nodes: dict[str, Node], now: float, settings: Settings) -> None:
     """Escribe el plan: borra las órdenes atascadas, escribe las copy y aplica cada Trim.
 
+    Una orden atascada se borra en una transacción que compara la mod_revision de la orden y la
+    del bloque, y que pone la delete del destino. Si un latido justo cumplió la orden (la borra
+    y agrega el destino a stored_on), la transacción falla y no se manda una delete que borraría
+    una copia registrada.
+
     Un Trim es una transacción que compara la mod_revision del bloque: escribe el stored_on
     sin ese nodo y la orden delete. Si falla porque el bloque cambió, se lee de nuevo, se
     recalcula con plan_trim y se intenta otra vez, hasta MAX_TRIES veces; si no, queda para
     la siguiente vuelta.
     """
-    for key in plan.stale_orders:
-        await etcd.delete(key)
+    for stale in plan.stale_orders:
+        await _delete_stale(etcd, stale)
     for origin, order in plan.copies:
         await etcd.put(order_key(origin, order["order_id"]), order)
         logger.info("líder: copia de %s/%s de %s a %s", order["user"], order["hash"][:12], origin, order["target"]["node_id"])
     for trim in plan.trims:
         await _apply_trim(etcd, trim, nodes, plan.returned, now, settings)
+
+
+async def _delete_stale(etcd: Etcd, stale: StaleOrder) -> None:
+    pending, block = stale.pending, stale.block
+    key = block_key(pending.order["user"], pending.order["hash"])
+    conditions = [compare(pending.key, "MOD", "EQUAL", pending.mod_revision)]
+    if block is None:
+        conditions.append(compare(key, "CREATE", "EQUAL", 0))  # sigue sin existir
+    else:
+        conditions.append(compare(key, "MOD", "EQUAL", block.mod_revision))
+    success = [op_delete(pending.key)]
+    if stale.cleanup is not None:
+        success.append(op_put(order_key(stale.target, stale.cleanup["order_id"]), stale.cleanup))
+    if (await etcd.txn(conditions, success, [])).succeeded:
+        logger.info("líder: orden copy atascada %s borrada", pending.key)
 
 
 async def _apply_trim(

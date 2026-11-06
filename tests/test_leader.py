@@ -44,7 +44,8 @@ def snap(alive: dict[str, Node], *blocks: Block, orders: list[PendingOrder] = ()
 
 
 def copy_order(origin: str, target: str, *, hash: str = H1) -> PendingOrder:
-    order = {"order_id": "o-1", "type": "copy", "user": "ana", "hash": hash, "target": {"node_id": target, "address": "x:9444"}}
+    address = f"{DA13[target][0]}:9444"
+    order = {"order_id": "o-1", "type": "copy", "user": "ana", "hash": hash, "target": {"node_id": target, "address": address}}
     return PendingOrder(key=f"/orders/{origin}/o-1", node_id=origin, order=order)
 
 
@@ -126,15 +127,30 @@ def test_rule_4_no_duplicate_when_a_copy_order_is_pending():
     ],
     ids=["destino-caido", "origen-caido", "origen-sin-bloque"],
 )
-def test_rule_4_a_stuck_copy_order_is_deleted_and_replaced(alive, stored_on, order):
-    result = plan(snap(nodes(*alive), block(stored_on), orders=[order]))
-    assert result.stale_orders == [order.key]
-    assert len(result.copies) == 1  # la de reemplazo, con nodos vivos
+def test_rule_4_a_stuck_copy_order_is_deleted_and_replaced_in_the_next_round(alive, stored_on, order):
+    now = AFTER_GRACE + 0.5
+    result = plan(snap(nodes(*alive), block(stored_on), orders=[order]), now=now)
+    [stale] = result.stale_orders
+    assert stale.pending == order
+    assert result.copies == []  # la de reemplazo sale en la vuelta siguiente (sección 7.3)
+    # El destino no está en stored_on: por si alcanzó a recibir la copia, una delete con la regla del instante T.
+    assert stale.target == "dn3"
+    assert stale.cleanup == {
+        "order_id": "nuevo", "type": "delete", "user": "ana", "hash": H1, "written_before_ms": int(now * 1000) - 1000
+    }
+    assert len(plan(snap(nodes(*alive), block(stored_on)), now=now).copies) == 1
+
+
+def test_rule_4_no_delete_for_a_target_that_is_in_stored_on():
+    # El origen cayó, pero el destino ya tiene una copia registrada: no se le manda delete.
+    result = plan(snap(nodes("dn2", "dn3", "dn4"), block(["dn2", "dn3"]), orders=[copy_order("dn1", "dn3")]))
+    assert [stale.cleanup for stale in result.stale_orders] == [None]
 
 
 def test_rule_4_a_copy_order_of_a_block_that_no_longer_exists_is_deleted():
     result = plan(snap(nodes("dn1", "dn2", "dn3"), orders=[copy_order("dn1", "dn3")]))
-    assert result.stale_orders == ["/orders/dn1/o-1"]
+    [stale] = result.stale_orders
+    assert (stale.pending.key, stale.block, stale.cleanup["type"]) == ("/orders/dn1/o-1", None, "delete")
 
 
 def test_rule_5_origin_is_the_first_live_node_of_stored_on():
@@ -244,14 +260,41 @@ async def test_round_trims_the_extra_copy_in_one_transaction():
 
 
 @pytest.mark.anyio
-async def test_round_deletes_stuck_orders():
+async def test_round_deletes_stuck_orders_and_the_next_round_replaces_them():
     etcd = etcd_with("dn1", "dn2", "dn4")
     add_block(etcd, "ana", H1, stored_on=["dn1", "dn2"])
     etcd.seed("/orders/dn1/viejo", copy_order("dn1", "dn3").order)  # dn3 no está vivo
+    state = LeaderState(won_at=WON)
+
+    await repair_round(etcd, SETTINGS, state, AFTER_GRACE)
+    [cleanup] = etcd.keys("/orders/")  # la atascada ya no está; dn3 recibirá una delete al volver
+    assert cleanup.startswith("/orders/dn3/")
+    assert etcd.value(cleanup)["type"] == "delete"
+    assert etcd.value(cleanup)["written_before_ms"] == int(AFTER_GRACE * 1000) - 1000
+
+    await repair_round(etcd, SETTINGS, state, AFTER_GRACE + 10)
+    [copy] = etcd.keys("/orders/dn1/")
+    assert etcd.value(copy)["target"]["node_id"] == "dn4"
+
+
+@pytest.mark.anyio
+async def test_stuck_order_that_a_heartbeat_just_completed_is_left_alone(monkeypatch):
+    # Origen caído justo después de copiar a dn3: su último latido cumple la orden entre la
+    # lectura del líder y su transacción (agrega dn3 a stored_on y borra la orden).
+    etcd = etcd_with("dn2", "dn3", "dn4")
+    add_block(etcd, "ana", H1, stored_on=["dn1", "dn2"])
+    etcd.seed("/orders/dn1/viejo", copy_order("dn1", "dn3").order)
+    real_txn = etcd.txn
+
+    async def heartbeat_first(compare, success, failure):
+        etcd.seed(f"/blocks/ana/{H1}", {**etcd.value(f"/blocks/ana/{H1}"), "stored_on": ["dn1", "dn2", "dn3"]})
+        await etcd.delete("/orders/dn1/viejo")
+        return await real_txn(compare, success, failure)
+
+    monkeypatch.setattr(etcd, "txn", heartbeat_first)
     await repair_round(etcd, SETTINGS, LeaderState(won_at=WON), AFTER_GRACE)
-    [key] = etcd.keys("/orders/")
-    assert key != "/orders/dn1/viejo"
-    assert etcd.value(key)["target"]["node_id"] == "dn4"
+
+    assert etcd.keys("/orders/") == []  # no salió una delete que borraría la copia registrada en dn3
 
 
 @pytest.mark.anyio
