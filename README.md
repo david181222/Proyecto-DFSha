@@ -20,6 +20,8 @@ Equipo: Edwin Vélez, José Díaz y Santiago Martínez.
 | 13 | Registro y latidos de los DataNodes (`datanodes.py`), autorregistro de los MetaServers y `GET /cluster/metaservers` (`metaservers.py`), y `GET /admin/status` (`status.py`) |
 | 14 | `PUT /blocks/{hash}` completo: el primario reenvía a los secundarios y confirma al MetaServer (`src/datanode/primary.py`), con `MetaClient` (`src/datanode/meta_client.py`) |
 | 15 | El DataNode se registra, late y cumple las órdenes `copy` y `delete` del líder, y crea su `disk_id` (`src/datanode/agent.py`) |
+| 16 | Cliente `dfs`: `login`, `logout`, `pwd`, `cd`, `ls`, `stat [--blocks]`, `mkdir`, `rmdir`, `rm`, `useradd` y `status` (`src/dfs_client/`, ver "Correr en local", paso 5) |
+| 17 | `dfs put` y `dfs get` en paralelo, con reintentos, `realloc` y renovación del lock (`transfer.py` y `locks.py`) |
 
 Ya funcionan todas las rutas de las cuatro APIs. Un DataNode guarda, entrega y reenvía bloques cifrados, se registra, late y cumple las órdenes del líder. Las decisiones de la tarea 15 están en el docstring de `src/datanode/agent.py`. Las decisiones de comportamiento de las tareas 06 a 08 están en la sección 11 de `docs/contratos.md`, y las de las tareas 09 y 10, en la sección 12. Las de la tarea 11 no cambian el contrato y están en el docstring de `src/metaserver/locks.py`; los cambios y decisiones de la tarea 12, en la sección 13; y las de la tarea 13, en los docstrings de `datanodes.py`, `metaservers.py` y `status.py`.
 
@@ -62,6 +64,8 @@ Código del cliente (`src/dfs_client/`):
 | `api.py` | `DfsApi`: una llamada por ruta del contrato; descubre los MetaServers y pasa al siguiente si uno no responde |
 | `session.py` | Sesión en `~/.dfs/session.json` (usuario, JWT y directorio actual); `Session.resolve` arma la ruta absoluta |
 | `cli.py` | Comandos `dfs` con typer; el formato de la salida está en las funciones `format_*` |
+| `transfer.py` | `upload_version`, `fetch_block` y `download_file`: bloques en paralelo, con reintentos y verificación del SHA-256 |
+| `locks.py` | `LockKeeper`: renueva el lock en un hilo mientras se escribe y avisa si se perdió |
 
 | Documento | Contenido |
 |---|---|
@@ -207,6 +211,16 @@ docker compose -f compose.local.yml exec client dfs mkdir /docs
 docker compose -f compose.local.yml exec client dfs cd /docs
 docker compose -f compose.local.yml exec client dfs ls
 docker compose -f compose.local.yml exec client dfs rmdir /docs
+```
+
+Subir y bajar un archivo, y ver dónde quedó cada bloque. `put` y `get` muestran la versión, los bloques enviados y los MiB/s; `--parallel N` cambia cuántos bloques viajan a la vez (4 por defecto).
+
+```bash
+docker compose -f compose.local.yml exec client sh -c "head -c 64M /dev/urandom > /tmp/a.bin"
+docker compose -f compose.local.yml exec client dfs put /tmp/a.bin /a.bin
+docker compose -f compose.local.yml exec client dfs stat --blocks /a.bin
+docker compose -f compose.local.yml exec client dfs get /a.bin /tmp/b.bin
+docker compose -f compose.local.yml exec client sha256sum /tmp/a.bin /tmp/b.bin
 ```
 
 `dfs --help` lista los comandos, y `dfs COMANDO --help` explica cada uno.

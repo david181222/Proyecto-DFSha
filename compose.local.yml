@@ -259,12 +259,15 @@ services:
       - {source: dn4_node_key, target: node_key}
 
   # Cliente: solo la CA, para verificar a los servidores. Queda esperando comandos.
+  # Lleva los mismos tiempos que los servidores: DFS_BLOCK_MIB tiene que coincidir con el del
+  # MetaServer (si no, cada put responde 400), y de DFS_LOCK_RENEW_S y DFS_PRIMARY_WAIT_S salen
+  # la renovación del lock y los timeouts del cliente (tarea 17).
   client:
     <<: *dfs
     command: ["sleep", "infinity"]
     networks: {dfs: {ipv4_address: 10.88.0.41}}
     environment:
-      <<: *seeds
+      <<: [*dfs-times, *seeds]
       DFS_ZONE: us-east-1a
     secrets:
       - {source: ca_crt, target: ca.crt}
