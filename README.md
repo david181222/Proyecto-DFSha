@@ -28,6 +28,7 @@ Equipo: Edwin Vélez, José Díaz y Santiago Martínez.
 | 22 | Integración local: el sistema completo en Compose pasa el script de humo con 512 MiB (`scripts/pruebas/smoke.sh`, ver "Correr en local", paso 6); evidencia y medición de referencia en `docs/pruebas/22-integracion-local.md` |
 | 23 | Scripts de AWS con la AWS CLI (`infra/`): `create.sh`, `allow-ssh.sh`, `destroy.sh` y `deploy.sh` (DA-15), más `ssh.sh` para entrar a una VM, con la configuración común en `config.sh`; y `compose.aws.yml`, con un perfil por tipo de VM. Cómo se usa cada uno está en su comentario inicial; los pasos probados en AWS llegan con la tarea 24 |
 | 24 | Primer despliegue en las 5 VMs de AWS: las siete comprobaciones pasan, con etcd, líder, humo de 512 MiB desde la VM5, red, reinicio y nueva sesión (`docs/pruebas/24-despliegue-aws.md`). Los pasos están en "Despliegue en AWS" |
+| 25 | Pruebas de carga, acceso RF3 y rendimiento: `scripts/pruebas/rf3.sh` (dos `dfs shell`, G2 y G3) y `scripts/pruebas/perf.sh` con su resumen `perf_summary.py` (put y get por tamaño, clientes y W), con los tiempos cortos de `scripts/pruebas/pruebas.env`. Ensayadas en local; evidencias en `docs/pruebas/25-*.md` |
 
 Ya funcionan todas las rutas de las cuatro APIs. Un DataNode guarda, entrega y reenvía bloques cifrados, se registra, late y cumple las órdenes del líder. Las decisiones de la tarea 15 están en el docstring de `src/datanode/agent.py`. Las decisiones de comportamiento de las tareas 06 a 08 están en la sección 11 de `docs/contratos.md`, y las de las tareas 09 y 10, en la sección 12. Las de la tarea 11 no cambian el contrato y están en el docstring de `src/metaserver/locks.py`; los cambios y decisiones de la tarea 12, en la sección 13; las de la tarea 13, en los docstrings de `datanodes.py`, `metaservers.py` y `status.py`; las de la tarea 18, en el de `src/dfs_client/files.py`; las de la tarea 19, en el de `leader.py`; las de la tarea 20, en el de `gc.py`; y las de la tarea 23, en los comentarios iniciales de `infra/deploy.sh`, `infra/lib.sh` y `compose.aws.yml`.
 
@@ -320,6 +321,8 @@ Para actualizar el código después de un cambio en GitHub, se corre `./infra/de
 ```bash
 ./infra/deploy.sh --check                                # solo la comprobación de salud
 ./infra/ssh.sh vm5 scripts/pruebas/smoke.sh --env aws    # prueba de humo, 512 MiB
+./infra/ssh.sh vm5 scripts/pruebas/rf3.sh --env aws      # RF3 con dos clientes (tarea 25)
+./infra/ssh.sh vm5 scripts/pruebas/perf.sh --env aws --csv docs/pruebas/datos/25-rendimiento-aws.csv  # rendimiento
 ./infra/ssh.sh vm5                                       # entrar a la VM del cliente
 ./infra/ssh.sh vm4 docker compose stop dn                # detener dn4 (pruebas de fallos)
 ./infra/ssh.sh vm4 docker compose start dn
