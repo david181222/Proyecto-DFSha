@@ -20,8 +20,8 @@ Detener la zona b completa (VM2 y VM4: etcd2, meta2, dn2 y dn4) y comprobar que:
 
 | | Ensayo local | AWS |
 |---|---|---|
-| Dónde | `compose.local.yml` en un portátil con Windows 11 y Docker Desktop 29.1.2; el script corre en Git Bash | *(se llena en la corrida)* |
-| Commit | rama `t27-pruebas-fallos`, sobre `main` en `b6e4d2b`, antes de su primer commit | *(se llena en la corrida)* |
+| Dónde | `compose.local.yml` en un portátil con Windows 11 y Docker Desktop 29.1.2; el script corre en Git Bash | 5 VMs t3.small en us-east-1 (Learner Lab de Santiago, 7 de noviembre de 2026); `fallos.sh` corre en WSL y `timeline.sh` en la VM5 |
+| Commit | rama `t27-pruebas-fallos`, sobre `main` en `b6e4d2b`, antes de su primer commit | `1e1d3b2` desplegado en las VMs con `./infra/deploy.sh --ref t27-pruebas-fallos`. `fallos.sh`, que corre en WSL, lleva un arreglo hecho antes de la primera corrida: su función `aws()` tapaba la AWS CLI y pasó a llamarse `on_aws()` |
 | DA-16 | normales, salvo `DFS_LEADER_GRACE_S=60` (en el `.env` local) | normales de la Tabla 19 |
 | Cómo se provoca el fallo | `docker compose stop etcd2 meta2 dn2 dn4` | `./infra/vm.sh stop vm2 vm4` |
 
@@ -120,11 +120,52 @@ Por qué dn3 no respondió en 10 s no está comprobado. En esas corridas, las mu
 
 ### 5.3 AWS (512 MiB)
 
-*Pendiente de la corrida en AWS.*
+Una corrida, que pasó. Línea de tiempo recortada (UTC), de `docs/pruebas/datos/27-zona-b-aws.csv`:
+
+```text
+20:19:22  >> deteniendo la zona b: vm2 vm4 (aws ec2 stop-instances)
+20:19:45  vivos=dn1,dn3 caídos=dn2,dn4 líder=meta3 menos_de_3=192 copy=0 delete=0
+20:19:58  >> zona b detenida
+20:20:22  >> empieza escritura con la zona b caída: put de /fallos-zb-b-20261107-151840.bin
+20:20:34  vivos=dn1,dn3 caídos=dn2,dn4 líder=meta3 menos_de_3=256 copy=0 delete=0
+20:20:34  >> termina escritura con la zona b caída: bien
+20:20:47  vivos=dn1,dn3 caídos=dn2,dn4 líder=meta3 menos_de_3=256 copy=32 delete=0
+20:20:53  vivos=dn1,dn3 caídos=dn2,dn4 líder=meta3 menos_de_3=256 copy=24 delete=0
+20:20:59  vivos=dn1,dn3 caídos=dn2,dn4 líder=meta3 menos_de_3=256 copy=0 delete=0
+20:22:29  >> encendiendo la zona b: vm2 vm4
+20:22:52  vivos=dn1,dn2,dn3,dn4 caídos=- líder=meta3 menos_de_3=64 copy=0 delete=0
+20:22:57  >> zona b encendida otra vez
+20:22:58  vivos=dn1,dn2,dn3,dn4 caídos=- líder=meta3 menos_de_3=64 copy=64 delete=32
+20:23:04  vivos=dn1,dn2,dn3,dn4 caídos=- líder=meta3 menos_de_3=42 copy=42 delete=32
+20:23:10  vivos=dn1,dn2,dn3,dn4 caídos=- líder=meta3 menos_de_3=12 copy=12 delete=0
+20:23:16  vivos=dn1,dn2,dn3,dn4 caídos=- líder=meta3 menos_de_3=0 copy=0 delete=0
+```
+
+```text
+PASA   put de /fallos-zb-a-20261107-151840.bin con todo vivo: /fallos-zb-a-20261107-151840.bin: versión 1, 512.0 MiB en 64 bloques (64 enviados, 0 ya estaban), 9.12 s, 56.2 MiB/s
+PASA   lectura con la zona b caída: get de /fallos-zb-a-20261107-151840.bin terminó bien y el SHA-256 es igual al original (ddff68053ebc5f2a...)
+PASA   escritura con la zona b caída: /fallos-zb-b-20261107-151840.bin: versión 1, 512.0 MiB en 64 bloques (64 enviados, 0 ya estaban), 9.71 s, 52.7 MiB/s
+PASA   escritura con la zona b caída: G1, los 64 bloques tienen copias vivas en al menos 2 zonas (0 con 3 copias)
+PASA   los 64 bloques nuevos quedaron con 2 copias, en dn1 y dn3 (DA-05)
+PASA   lectura de lo escrito sin la zona b: get de /fallos-zb-b-20261107-151840.bin terminó bien y el SHA-256 es igual al original (db21dce38f140939...)
+PASA   lectura después de 90 s sin la zona b: get de /fallos-zb-a-20261107-151840.bin terminó bien y el SHA-256 es igual al original (ddff68053ebc5f2a...)
+PASA   las copias que faltaban volvieron a las 20:23:16: 47 s después de empezar a encender la zona b (20:22:29) y 19 s después de que respondió (20:22:57)
+PASA   archivo escrito sin la zona b: los 64 bloques de /fallos-zb-b-20261107-151840.bin tienen 3 copias vivas
+PASA   sano otra vez a las 20:23:34: 4 DataNodes vivos, líder meta3, 0 bloques con menos de 3 copias, 0 órdenes
+PASA   ./infra/deploy.sh --check: todo ok (etcd con 3 miembros sanos)
+RESULTADO: PASA (0 avisos)
+```
+
+Cómo se lee:
+
+- **"Menos de 3 copias".** Son 192 bloques al caer la zona: los 64 de A y los 128 de la prueba de un DataNode, ya borrados, que la limpieza todavía no quita (`DFS_GC_MIN_AGE_S=3600`). Sube a 256 con los 64 de B y no baja mientras dura la caída.
+- **La escritura.** Tardó 9,7 s, igual que con todo vivo (9,1 s). El fallo de las corridas locales de las 18:22 y 18:28 no se repitió.
+- **20:20:47.** Son 62 s después de ver la zona caída. El líder ordena copias entre dn1 y dn3 para los bloques que solo uno de los dos tenía. Así quedan con 2 copias, pero no pueden llegar a 3.
+- **Al volver la zona.** Las VMs tardan 23 s en arrancar y en que sus DataNodes vuelvan a latir. Quedan 64 bloques con menos de 3 copias, los de B, y el líder los repone en 19 s. Las 32 órdenes `delete` son copias que sobran al volver dn2 y dn4; no revisé de qué bloques son.
 
 ## 6. Conclusión
 
-En el ensayo local, con la zona b caída la lectura funcionó siempre. La escritura funcionó en 2 de 4 corridas. Cuando funciona, deja cada bloque en dn1 y dn3, como dice DA-05, y la tercera copia vuelve con la zona. Cuando falla, es porque con solo 2 DataNodes un secundario lento hace fallar el `put` completo (Pendientes). G1 nunca se rompió: el `put` que falló no se publicó. *La conclusión sobre AWS se llena con la corrida.*
+Con la zona b caída, la lectura funcionó siempre, en local y en AWS. La escritura funcionó en AWS y en 2 de 4 corridas locales. Cuando funciona, deja cada bloque en dn1 y dn3, como dice DA-05, y la tercera copia vuelve con la zona. Cuando falla, en las corridas locales, es porque con solo 2 DataNodes un secundario lento hace fallar el `put` completo (Pendientes). G1 nunca se rompió: el `put` que falló no se publicó. En AWS, con una VM por nodo, no hubo secundario lento.
 
 ## 7. Para el video
 

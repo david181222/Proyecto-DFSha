@@ -22,8 +22,8 @@ Detener dn4 en medio de un `get` y en medio de un `put`, y comprobar que:
 
 | | Ensayo local | AWS |
 |---|---|---|
-| Dónde | `compose.local.yml` en un portátil con Windows 11 y Docker Desktop 29.1.2; el script corre en Git Bash | *(se llena en la corrida)* |
-| Commit | rama `t27-pruebas-fallos`, sobre `main` en `b6e4d2b`, antes de su primer commit | *(se llena en la corrida)* |
+| Dónde | `compose.local.yml` en un portátil con Windows 11 y Docker Desktop 29.1.2; el script corre en Git Bash | 5 VMs t3.small en us-east-1 (Learner Lab de Santiago, 7 de noviembre de 2026); `fallos.sh` corre en WSL y `timeline.sh` en la VM5 |
+| Commit | rama `t27-pruebas-fallos`, sobre `main` en `b6e4d2b`, antes de su primer commit | `1e1d3b2` desplegado en las VMs con `./infra/deploy.sh --ref t27-pruebas-fallos`. `fallos.sh`, que corre en WSL, lleva un arreglo hecho antes de la primera corrida: su función `aws()` tapaba la AWS CLI y pasó a llamarse `on_aws()` |
 | DA-16 | normales, salvo `DFS_LEADER_GRACE_S=60` (en el `.env` local) | normales de la Tabla 19 |
 | Cómo se provoca el fallo | `docker compose stop dn4` | `docker compose stop dn` en la VM4 |
 
@@ -106,11 +106,56 @@ En otras dos corridas del mismo ensayo, una de 128 MiB y otra de 32 MiB, la re-r
 
 ### 5.2 AWS (512 MiB)
 
-*Pendiente de la corrida en AWS.*
+Línea de tiempo recortada (UTC), de `docs/pruebas/datos/27-datanode-aws.csv`:
+
+```text
+20:15:03  >> empieza get de /fallos-dn-a-20261107-151425.bin
+20:15:05  >> deteniendo dn4
+20:15:17  >> dn4 detenido (docker compose stop)
+20:15:17  >> termina get de /fallos-dn-a-20261107-151425.bin (código 0)
+20:15:19  >> dn4 arrancado otra vez
+20:15:30  >> empieza put de /fallos-dn-b-20261107-151425.bin
+20:15:32  >> deteniendo dn4
+20:15:34  >> dn4 detenido (docker compose stop)
+20:15:40  vivos=dn1,dn2,dn3,dn4 caídos=- líder=meta3 menos_de_3=23 copy=0 delete=0
+20:15:43  >> termina put de /fallos-dn-b-20261107-151425.bin (código 0)
+20:15:46  vivos=dn1,dn2,dn3 caídos=dn4 líder=meta3 menos_de_3=80 copy=32 delete=0
+20:15:53  vivos=dn1,dn2,dn3 caídos=dn4 líder=meta3 menos_de_3=48 copy=0 delete=0
+20:16:41  vivos=dn1,dn2,dn3 caídos=dn4 líder=meta3 menos_de_3=48 copy=0 delete=0
+20:16:47  vivos=dn1,dn2,dn3 caídos=dn4 líder=meta3 menos_de_3=48 copy=48 delete=0
+20:16:53  vivos=dn1,dn2,dn3 caídos=dn4 líder=meta3 menos_de_3=32 copy=32 delete=0
+20:16:59  vivos=dn1,dn2,dn3 caídos=dn4 líder=meta3 menos_de_3=0 copy=0 delete=0
+20:17:12  >> dn4 arrancado otra vez
+20:17:17  vivos=dn1,dn2,dn3,dn4 caídos=- líder=meta3 menos_de_3=0 copy=0 delete=48
+20:17:23  vivos=dn1,dn2,dn3,dn4 caídos=- líder=meta3 menos_de_3=0 copy=0 delete=23
+20:17:29  vivos=dn1,dn2,dn3,dn4 caídos=- líder=meta3 menos_de_3=0 copy=0 delete=0
+```
+
+```text
+PASA   put de /fallos-dn-a-20261107-151425.bin con todo vivo: /fallos-dn-a-20261107-151425.bin: versión 1, 512.0 MiB en 64 bloques (64 enviados, 0 ya estaban), 11.07 s, 46.3 MiB/s
+PASA   get con dn4 detenido en medio: terminó bien y el SHA-256 es igual al original
+PASA   put con dn4 detenido en medio: terminó bien: /fallos-dn-b-20261107-151425.bin: versión 1, 512.0 MiB en 64 bloques (64 enviados, 0 ya estaban), 10.18 s, 50.3 MiB/s
+PASA   put con dn4 detenido: G1, los 64 bloques tienen copias vivas en al menos 2 zonas (32 con 3 copias)
+PASA   lectura de lo escrito sin dn4: get de /fallos-dn-b-20261107-151425.bin terminó bien y el SHA-256 es igual al original (93561723e98449b5...)
+PASA   tercera copia repuesta sin dn4 a las 20:16:59: 87 s después de empezar el fallo (20:15:32) y 73 s después de que dfs status mostró dn4 caído (20:15:46); DFS_NODE_LEASE_S=15, DFS_REREPLICATE_AFTER_S=60
+PASA   archivo de antes, sin dn4: los 64 bloques de /fallos-dn-a-20261107-151425.bin tienen 3 copias vivas
+PASA   archivo escrito durante el fallo, sin dn4: los 64 bloques de /fallos-dn-b-20261107-151425.bin tienen 3 copias vivas
+PASA   sano otra vez a las 20:17:35: 4 DataNodes vivos, líder meta3, 0 bloques con menos de 3 copias, 0 órdenes
+PASA   ./infra/deploy.sh --check: todo ok (etcd con 3 miembros sanos)
+RESULTADO: PASA (0 avisos)
+```
+
+Cómo se leen los tiempos:
+
+- **El `put` sin dn4.** Tardó 10,2 s, casi lo mismo que con todo vivo (11,1 s). En el portátil pasó de 10 a 47 s.
+- **20:15:46.** Las 32 órdenes `copy` son de bloques de B que se confirmaron con 2 copias. El líder las ordena sin esperar (regla 3 de `plan_repairs`).
+- **20:16:47.** Son 61 s después de la primera muestra con dn4 caído. El líder ordena las 48 copias de los bloques que tenía dn4 (`DFS_REREPLICATE_AFTER_S`), y 12 s después ya están.
+- **Al volver dn4.** El líder borra las copias que sobran en dos vueltas (48 órdenes `delete` pendientes y después 23), y a los 17 s de arrancar dn4 no queda ninguna.
+- **El `get`.** Tardó unos 14 s, cuando un `get` de 512 MiB con todo vivo tarda de 6 a 9 s (tarea 24), y terminó en el mismo segundo en que acabó `docker compose stop`. En el ensayo local pasó lo mismo. No revisé si el cliente esperó a dn4, que mientras se detiene sigue atendiendo las conexiones abiertas, o si fue el timeout de 5 s por bloque antes de pasar a otra réplica (docstring de `src/dfs_client/transfer.py`). El resultado es el esperado: terminó bien y con el SHA-256 original.
 
 ## 6. Conclusión
 
-En el ensayo local, detener dn4 en medio de un `get` o de un `put` no interrumpe ninguna operación. Lo escrito queda en 2 zonas, y el líder repone la tercera copia unos 60 s después de ver dn4 caído, como dice DA-12. Al volver dn4, el líder borra las copias que sobran. *La conclusión sobre AWS se llena con la corrida.*
+Detener dn4 en medio de un `get` o de un `put` no interrumpe ninguna operación, ni en local ni en AWS. Lo escrito queda en 2 zonas, y el líder repone la tercera copia unos 60 s después de ver dn4 caído, como dice DA-12: a los 59 s en local y a los 61 s en AWS, con los tiempos normales de la Tabla 19. Al volver dn4, el líder borra las copias que sobran y el clúster queda sano.
 
 ## 7. Para el video
 

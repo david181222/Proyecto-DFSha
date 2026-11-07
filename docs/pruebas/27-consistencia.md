@@ -21,8 +21,8 @@ Cortar con `iptables` el tráfico hacia un secundario (dn4, puerto 9444) mientra
 
 | | Ensayo local | AWS |
 |---|---|---|
-| Dónde | `compose.local.yml` en un portátil con Windows 11 y Docker Desktop 29.1.2; el script corre en Git Bash | *(se llena en la corrida)* |
-| Commit | rama `t27-pruebas-fallos`, sobre `main` en `b6e4d2b`, antes de su primer commit | *(se llena en la corrida)* |
+| Dónde | `compose.local.yml` en un portátil con Windows 11 y Docker Desktop 29.1.2; el script corre en Git Bash | 5 VMs t3.small en us-east-1 (Learner Lab de Santiago, 7 de noviembre de 2026); `fallos.sh` corre en WSL y `timeline.sh` en la VM5 |
+| Commit | rama `t27-pruebas-fallos`, sobre `main` en `b6e4d2b`, antes de su primer commit | `1e1d3b2` desplegado en las VMs con `./infra/deploy.sh --ref t27-pruebas-fallos`. `fallos.sh`, que corre en WSL, lleva un arreglo hecho antes de la primera corrida: su función `aws()` tapaba la AWS CLI y pasó a llamarse `on_aws()` |
 | DA-16 | normales, salvo `DFS_LEADER_GRACE_S=60` (en el `.env` local) | normales de la Tabla 19 |
 | Cómo se corta la red | `iptables -I INPUT -p tcp --dport 9444 -j DROP` en el espacio de red del contenedor dn4, desde un contenedor auxiliar (alpine con `iptables` y `NET_ADMIN`). `compose.local.yml` no cambia | la misma regla con `sudo iptables` en la VM4 (`network_mode: host`) |
 
@@ -99,11 +99,50 @@ Cómo se lee:
 
 ### 5.2 AWS (64 MiB)
 
-*Pendiente de la corrida en AWS.*
+```text
+20:24:38  >> iptables: cortado el puerto 9444 de dn4 (lo que le reenvían el primario y las órdenes copy)
+20:24:38  >> empieza el put de la versión 2
+20:24:45  vivos=dn1,dn2,dn3,dn4 caídos=- líder=meta3 menos_de_3=0 copy=0 delete=0
+20:24:52  vivos=dn1,dn2,dn3,dn4 caídos=- líder=meta3 menos_de_3=2 copy=0 delete=0
+20:24:55  >> termina el put de la versión 2 (código 0)
+20:24:58  vivos=dn1,dn2,dn3,dn4 caídos=- líder=meta3 menos_de_3=4 copy=4 delete=0
+20:25:02  >> lectura que terminó a las 20:24:42: versión 1
+20:25:02  >> lectura que terminó a las 20:24:45: versión 1
+20:25:02  >> lectura que terminó a las 20:24:48: versión 1
+20:25:02  >> lectura que terminó a las 20:24:52: versión 1
+20:25:02  >> lectura que terminó a las 20:24:55: versión 2
+20:25:02  >> lectura que terminó a las 20:24:58: versión 2 (después del put)
+20:25:02  >> lectura que terminó a las 20:25:02: versión 2 (después del put)
+20:25:04  vivos=dn1,dn2,dn3,dn4 caídos=- líder=meta3 menos_de_3=4 copy=4 delete=0
+20:25:06  >> 6 de 8 bloques de la versión 2 no tienen copia viva en dn4
+20:25:08  >> iptables: regla quitada en dn4
+20:25:10  vivos=dn1,dn2,dn3,dn4 caídos=- líder=meta3 menos_de_3=0 copy=0 delete=0
+```
+
+```text
+PASA   put de /fallos-cons-20261107-152410.bin con todo vivo: /fallos-cons-20261107-152410.bin: versión 1, 64.0 MiB en 8 bloques (8 enviados, 0 ya estaban), 1.36 s, 47.2 MiB/s
+PASA   put con el tráfico a dn4 cortado: terminó bien: /fallos-cons-20261107-152410.bin: versión 2, 64.0 MiB en 8 bloques (8 enviados, 0 ya estaban), 11.73 s, 5.5 MiB/s
+PASA   G2: 7 lecturas, todas una versión completa (4 de la 1 y 3 de la 2), ninguna mezcla
+PASA   G3: las lecturas que empezaron después del put ven la versión 2
+PASA   mientras duraba el put, los lectores veían la versión 1 (4 lecturas)
+PASA   versión 2 con dn4 cortado: G1, los 8 bloques tienen copias vivas en al menos 2 zonas (4 con 3 copias)
+PASA   sin bloques con menos de 3 copias a las 20:25:10, 2 s después de quitar la regla
+PASA   versión 2 después de desbloquear: los 8 bloques de /fallos-cons-20261107-152410.bin tienen 3 copias vivas
+PASA   sano otra vez a las 20:25:22: 4 DataNodes vivos, líder meta3, 0 bloques con menos de 3 copias, 0 órdenes
+PASA   ./infra/deploy.sh --check: todo ok (etcd con 3 miembros sanos)
+RESULTADO: PASA (0 avisos)
+```
+
+Cómo se lee:
+
+- **El `put`.** Tardó 11,7 s con la regla puesta, contra 1,4 s de v1 con todo vivo. La diferencia, 10,4 s, es casi un `DFS_PRIMARY_WAIT_S` (10 s): lo que espera un primario a dn4 antes de confirmar con las 2 copias que tiene (DA-04). Los bloques van en paralelo, así que esas esperas no se suman.
+- **Lecturas.** Igual que en local: 4 lecturas vieron v1 mientras duraba el `put`, la que terminó a las 20:24:55 ya vio v2, y ninguna vio una mezcla.
+- **dn4 no aparece caído.** La regla no toca los latidos, y en AWS no se perdió ninguno. En el ensayo local, dn4 sí apareció caído en una muestra, por la carga del portátil.
+- **Las copias.** Al revisar G1, 4 bloques tenían 3 copias y 6 no tenían copia en dn4. El líder ordenó 4 copias que siguieron pendientes mientras la regla estaba puesta, y 2 s después de quitarla ya no quedaba ningún bloque con menos de 3. No revisé el destino de esas órdenes. Que se completaran justo al quitar la regla hace pensar que iban a dn4.
 
 ## 6. Conclusión
 
-En el ensayo local, cortar el tráfico hacia un secundario no rompe ninguna garantía. El `put` termina con cada bloque en 2 zonas (G1), los lectores ven la versión 1 completa hasta el commit y la 2 completa después (G2 y G3), y el clúster vuelve a sano. El líder no tuvo que esperar a que se quitara la regla: repuso las copias en los otros DataNodes. *La conclusión sobre AWS se llena con la corrida.*
+Cortar el tráfico hacia un secundario no rompe ninguna garantía, ni en local ni en AWS. El `put` tarda un `DFS_PRIMARY_WAIT_S` más y termina con cada bloque en 2 zonas (G1). Los lectores ven la versión 1 completa hasta el commit y la 2 completa después (G2 y G3). Al quitar la regla, el líder deja todo con 3 copias y el clúster vuelve a sano.
 
 ## 7. Para el video
 

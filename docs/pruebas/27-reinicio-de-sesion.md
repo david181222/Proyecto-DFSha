@@ -21,8 +21,8 @@ Terminar la sesión del Learner Lab (End Lab) e iniciar otra (Start Lab), y comp
 
 | | Ensayo local | AWS |
 |---|---|---|
-| Dónde | `compose.local.yml` en un portátil con Windows 11 y Docker Desktop 29.1.2; el script corre en Git Bash | *(se llena en la corrida)* |
-| Commit | rama `t27-pruebas-fallos`, sobre `main` en `b6e4d2b`, antes de su primer commit | *(se llena en la corrida)* |
+| Dónde | `compose.local.yml` en un portátil con Windows 11 y Docker Desktop 29.1.2; el script corre en Git Bash | 5 VMs t3.small en us-east-1 (Learner Lab de Santiago, 7 de noviembre de 2026); `fallos.sh` corre en WSL y `timeline.sh` en la VM5 |
+| Commit | rama `t27-pruebas-fallos`, sobre `main` en `b6e4d2b`, antes de su primer commit | `1e1d3b2` desplegado en las VMs con `./infra/deploy.sh --ref t27-pruebas-fallos`. `fallos.sh`, que corre en WSL, lleva un arreglo hecho antes de la primera corrida: su función `aws()` tapaba la AWS CLI y pasó a llamarse `on_aws()` |
 | DA-16 | normales, salvo `DFS_LEADER_GRACE_S=60` (en el `.env` local) | normales de la Tabla 19: `DFS_LEADER_GRACE_S=300` |
 | Cómo se simula la sesión | `docker compose stop` de todo; después arrancan las VMs de control y el cliente, y dn4 40 s más tarde, como una VM que tarda en arrancar | End Lab y Start Lab |
 
@@ -93,11 +93,39 @@ Durante 32 s hubo 76 bloques con menos de 3 copias y ninguna orden `copy`. dn4 v
 
 ### 5.2 AWS (64 MiB, espera de 300 s)
 
-*Pendiente de la corrida en AWS.* En AWS la línea de tiempo empieza cuando la VM5 ya responde por SSH. Si eso pasa después de la espera del líder, el script lo dice como AVISO. En ese caso la evidencia solo puede mostrar que el clúster volvió completo.
+Horas de CloudTrail (hora de Colombia, UTC−5): `sesion-antes` terminó a las 15:36; End Lab detuvo las VMs a las 15:38:37, y Start Lab las encendió a las 16:53:09. El SSH a la VM5 ya respondía a las 16:55, y entonces empezó `sesion-despues`. Línea de tiempo recortada (UTC), de `docs/pruebas/datos/27-sesion-despues-aws.csv`:
+
+```text
+21:55:50  >> inicio: sesion-despues en aws (DFS_W=2, DFS_REREPLICATE_AFTER_S=60, DFS_LEADER_GRACE_S=300)
+21:55:53  vivos=dn1,dn2,dn3,dn4 caídos=- líder=meta2 menos_de_3=0 copy=0 delete=0
+21:55:57  >> el líder es meta2; su contenedor arrancó a las 21:53:21, así que su espera termina después de las 21:58:21
+21:58:20  vivos=dn1,dn2,dn3,dn4 caídos=- líder=meta2 menos_de_3=0 copy=0 delete=0
+21:58:26  vivos=dn1,dn2,dn3,dn4 caídos=- líder=meta2 menos_de_3=0 copy=0 delete=0
+22:00:19  vivos=dn1,dn2,dn3,dn4 caídos=- líder=meta2 menos_de_3=0 copy=0 delete=0
+22:00:21  >> fin de la observación
+```
+
+Las 46 muestras de la observación, de 21:55:53 a 22:00:19, son iguales: 4 DataNodes vivos, 0 bloques con menos de 3 copias y 0 órdenes.
+
+```text
+PASA   DA-12: 26 muestras entre 21:55:53 y 21:58:21, dentro de la espera del líder, y ninguna con órdenes copy (0 con bloques con menos de 3 copias)
+PASA   los DataNodes volvieron con las mismas direcciones: dn1=172.31.86.98:9443 dn2=172.31.16.163:9443 dn3=172.31.47.32:9443 dn4=172.31.24.157:9443
+PASA   mismas IP privadas: vm1=172.31.86.98 vm2=172.31.16.163 vm3=172.31.47.32 vm4=172.31.24.157 vm5=172.31.84.17
+PASA   archivo de la sesión anterior: get de /fallos-sesion.bin terminó bien y el SHA-256 es igual al original (440aa315f89eaafb...)
+PASA   sano otra vez a las 22:00:37: 4 DataNodes vivos, líder meta2, 0 bloques con menos de 3 copias, 0 órdenes
+PASA   ./infra/deploy.sh --check: todo ok (etcd con 3 miembros sanos)
+RESULTADO: PASA (0 avisos)
+```
+
+Cómo se lee:
+
+- **Qué se vio.** Start Lab enciende las 5 VMs a la vez. Cuando empezó la observación, 2 min 32 s después de que arrancó el contenedor del líder, los 4 DataNodes ya latían, y no había bloques con menos de 3 copias. Durante el resto de la espera y los 2 minutos siguientes no hubo ninguna orden: ni `copy` ni `delete`.
+- **Qué no se vio.** Los primeros 2 min 32 s de la espera no tienen muestras, porque la VM5 todavía no respondía por SSH. Lo que pasó en ese lapso no está medido.
+- **A diferencia del ensayo local,** en AWS ningún DataNode llegó tarde, así que no hubo bloques con menos de 3 copias que pusieran a prueba la espera. Esa parte la muestra el ensayo local (sección 5.1), con dn4 arrancado 40 s después.
 
 ## 6. Conclusión
 
-En el ensayo local, el líder nuevo no ordenó copias durante su espera, aunque faltaba un DataNode y había 76 bloques con menos de 3 copias. Como el nodo volvió dentro de la espera, no hubo ninguna re-réplica, que es lo que busca DA-12 al iniciar una sesión. *La conclusión sobre AWS se llena con la corrida.*
+En el ensayo local, el líder nuevo no ordenó copias durante su espera, aunque faltaba un DataNode y había 76 bloques con menos de 3 copias. Como el nodo volvió dentro de la espera, no hubo ninguna re-réplica, que es lo que busca DA-12 al iniciar una sesión. En AWS, después de End Lab y Start Lab, el sistema volvió completo sin ninguna re-réplica, con las mismas IP privadas en las 5 VMs, las mismas direcciones de los DataNodes y el archivo de la sesión anterior intacto. En AWS los 4 DataNodes volvieron antes de que la observación pudiera empezar, así que allí no hubo bloques con menos de 3 copias durante la espera.
 
 ## 7. Para el video
 

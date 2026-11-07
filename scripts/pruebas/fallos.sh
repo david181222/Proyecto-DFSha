@@ -115,10 +115,10 @@ fail() { results+=("FALLA  $*") && echo "FALLA  $*" && failures=$((failures + 1)
 
 # --- Entorno: dónde corre el cliente y cómo se provoca cada fallo ---
 
-aws() { [[ $env_name == aws ]]; }
+on_aws() { [[ $env_name == aws ]]; } # no se llama aws: taparía la AWS CLI que usan infra/lib.sh y vm.sh
 offset=0 # segundos que el reloj de la VM5 va adelante de este (solo AWS)
 
-if aws; then
+if on_aws; then
   source infra/config.sh
   source infra/lib.sh # trae su propio die e info, iguales en lo que importa
   require_aws
@@ -180,7 +180,7 @@ event() {
 timeline_pid=""
 start_timeline() {
   local cmd=(scripts/pruebas/timeline.sh --env "$env_name" --every 5 --for 7200)
-  if aws; then # si este script muere, ssh se corta y timeline.sh termina al escribir
+  if on_aws; then # si este script muere, ssh se corta y timeline.sh termina al escribir
     on_vm vm5 "${cmd[@]}" >"$timeline" 2>&1 </dev/null &
   else
     "${cmd[@]}" --parent $$ >"$timeline" 2>&1 </dev/null &
@@ -190,7 +190,7 @@ start_timeline() {
 stop_timeline() {
   [[ -n $timeline_pid ]] || return 0
   kill "$timeline_pid" 2>/dev/null
-  if aws; then on_vm vm5 pkill -f 'pruebas/[t]imeline.sh' </dev/null >/dev/null 2>&1; fi
+  if on_aws; then on_vm vm5 pkill -f 'pruebas/[t]imeline.sh' </dev/null >/dev/null 2>&1; fi
   wait "$timeline_pid" 2>/dev/null
   timeline_pid=""
 }
@@ -266,17 +266,17 @@ stopped="" zones_down="" blocked="" fault_at="" # fault_at: hora en que empezó 
 stop_dn() {
   event "deteniendo $1"
   fault_at=$event_at
-  if aws; then on_vm "$(vm_of "$1")" docker compose stop dn; else compose_cmd stop "$1"; fi >/dev/null 2>&1
+  if on_aws; then on_vm "$(vm_of "$1")" docker compose stop dn; else compose_cmd stop "$1"; fi >/dev/null 2>&1
   stopped+=" $1"
   event "$1 detenido (docker compose stop)"
 }
 start_dn() {
-  if aws; then on_vm "$(vm_of "$1")" docker compose start dn; else compose_cmd start "$1"; fi >/dev/null 2>&1
+  if on_aws; then on_vm "$(vm_of "$1")" docker compose start dn; else compose_cmd start "$1"; fi >/dev/null 2>&1
   stopped=${stopped// $1/}
   event "$1 arrancado otra vez"
 }
 zone_down() {
-  if aws; then
+  if on_aws; then
     event "deteniendo la zona $1: ${ZONE_VMS[$1]} (aws ec2 stop-instances)"
     fault_at=$event_at
     # shellcheck disable=SC2086 # la lista de VMs se separa a propósito
@@ -291,7 +291,7 @@ zone_down() {
   event "zona $1 detenida"
 }
 zone_up() {
-  if aws; then
+  if on_aws; then
     event "encendiendo la zona $1: ${ZONE_VMS[$1]}"
     restore_at=$event_at
     # shellcheck disable=SC2086
@@ -314,14 +314,14 @@ NET_RULE=(INPUT -p tcp --dport 9444 -j DROP)
 iptables_on() {
   local dn=$1
   shift
-  if aws; then
+  if on_aws; then
     on_vm "$(vm_of "$dn")" sudo iptables "$@"
   else
     docker run --rm --net "container:$(compose_cmd ps -q "$dn")" --cap-add NET_ADMIN "$IPTABLES_IMAGE" iptables "$@"
   fi
 }
 block_net() {
-  if ! aws && ! docker image inspect "$IPTABLES_IMAGE" >/dev/null 2>&1; then
+  if ! on_aws && ! docker image inspect "$IPTABLES_IMAGE" >/dev/null 2>&1; then
     printf 'FROM alpine:3.20\nRUN apk add --no-cache iptables\n' | docker build -q -t "$IPTABLES_IMAGE" - >/dev/null ||
       die "no pude construir la imagen auxiliar con iptables"
   fi
@@ -456,7 +456,7 @@ final_check() {
   else
     fail "el clúster no volvió a estar sano en $max_wait s (última muestra: $(tail -n 1 "$timeline"))"
   fi
-  if aws; then
+  if on_aws; then
     if ./infra/deploy.sh --check >"$log_dir/check.txt" 2>&1; then
       pass "./infra/deploy.sh --check: todo ok (etcd con 3 miembros sanos)"
     else
@@ -542,7 +542,7 @@ prepare() {
     ((++tries < limit)) || die "admin no pudo entrar (¿responden los MetaServers?)"
     sleep 5
   done
-  if aws; then offset=$(($(on_vm vm5 date +%s </dev/null) - $(date +%s))); fi
+  if on_aws; then offset=$(($(on_vm vm5 date +%s </dev/null) - $(date +%s))); fi
   read -r w rereplicate grace node_lease < <(client python -c 'from dfs_common.config import Settings as S; s = S(); print(s.w, s.rereplicate_after_s, s.leader_grace_s, s.node_lease_s)')
   [[ -n $grace ]] || die "no pude leer los tiempos de DA-16 del contenedor client"
   login_sessions "$user" writer reader
@@ -606,7 +606,7 @@ case_zona_c() {
   wait_for 30 has_leader
   if [[ $t_leader == meta3 ]]; then
     event "el líder es meta3, en la zona c: se reinicia meta3 para que gane otro"
-    if aws; then on_vm vm3 docker compose restart meta; else compose_cmd restart meta3; fi >/dev/null 2>&1
+    if on_aws; then on_vm vm3 docker compose restart meta; else compose_cmd restart meta3; fi >/dev/null 2>&1
     wait_for 120 leader_is_not meta3 || {
       fail "el líder no salió de la zona c"
       return
@@ -769,14 +769,14 @@ case_sesion_antes() {
   put_file p.bin "$p"
   uploaded=() # este archivo se queda hasta sesion-despues
   addresses=$(dn_addresses)
-  if aws; then
+  if on_aws; then
     local vm
     for vm in "${VMS[@]}"; do ips+="$vm=${VM_PRIVATE_IP[$vm]} "; done
   fi
   mkdir -p "$(dirname "$state_file")"
   printf 'remote=%q\nsha=%q\naddresses=%q\nips=%q\n' "$p" "$sha" "$addresses" "$ips" >"$state_file"
   pass "guardado $p (${sha:0:16}...) y las direcciones: $addresses"
-  if aws; then
+  if on_aws; then
     info "Ahora: End Lab; Start Lab; credenciales nuevas; ./infra/allow-ssh.sh; y enseguida scripts/pruebas/fallos.sh sesion-despues --env aws"
   else
     info "Ahora: docker compose -f compose.local.yml stop; ... start; y scripts/pruebas/fallos.sh sesion-despues"
@@ -786,7 +786,7 @@ case_sesion_antes() {
 # meta_started metaN: hora (epoch) en que arrancó el contenedor de ese MetaServer.
 meta_started() {
   local started
-  if aws; then
+  if on_aws; then
     # shellcheck disable=SC2016 # el $(...) se expande en la VM, no aquí
     started=$(on_vm "$(vm_of "$1")" sh -c 'docker inspect -f "{{.State.StartedAt}}" $(docker compose ps -q meta)' </dev/null)
   else
@@ -844,7 +844,7 @@ case_sesion_despues() {
   else
     fail "direcciones distintas: antes $addresses, ahora $(dn_addresses)"
   fi
-  if aws; then
+  if on_aws; then
     local vm
     load_vms
     for vm in "${VMS[@]}"; do now_ips+="$vm=${VM_PRIVATE_IP[$vm]} "; done
