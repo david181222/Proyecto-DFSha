@@ -1,0 +1,48 @@
+fecha,hora,tipo,vivos,caidos,lider,menos_de_3,copy,delete,detalle
+2026-11-07,18:36:32,evento,,,,,,,"inicio: zona-c en local (DFS_W=2, DFS_REREPLICATE_AFTER_S=60, DFS_LEADER_GRACE_S=60)"
+2026-11-07,18:36:35,muestra,dn1 dn2 dn3 dn4,-,meta1,0,0,0,
+2026-11-07,18:36:41,muestra,dn1 dn2 dn3 dn4,-,meta1,0,0,0,
+2026-11-07,18:36:47,muestra,dn1 dn2 dn3 dn4,-,meta1,0,0,0,
+2026-11-07,18:37:02,muestra,dn1 dn2 dn3 dn4,-,meta1,1,1,0,
+2026-11-07,18:37:20,evento,,,,,,,"deteniendo la zona c: etcd3 meta3 dn3"
+2026-11-07,18:37:25,muestra,dn1 dn2 dn3 dn4,-,meta1,1,1,0,
+2026-11-07,18:37:25,evento,,,,,,,"zona c detenida"
+2026-11-07,18:37:29,evento,,,,,,,"empieza escritura con la zona c caída: put de /fallos-zc-b-20261107-133626.bin"
+2026-11-07,18:37:32,muestra,dn1 dn2 dn3 dn4,-,meta1,0,0,0,
+2026-11-07,18:37:38,muestra,dn1 dn2 dn3 dn4,-,meta1,0,0,0,
+2026-11-07,18:37:45,muestra,dn1 dn2 dn4,dn3,meta1,291,1,0,
+2026-11-07,18:37:51,muestra,dn1 dn2 dn4,dn3,meta1,290,0,0,
+2026-11-07,18:37:58,muestra,dn1 dn2 dn4,dn3,meta1,293,2,0,
+2026-11-07,18:38:00,evento,,,,,,,"termina escritura con la zona c caída: bien"
+2026-11-07,18:38:04,muestra,dn1 dn2 dn4,dn3,meta1,293,5,0,
+2026-11-07,18:38:11,muestra,dn1 dn2 dn4,dn3,meta1,288,0,0,
+2026-11-07,18:38:17,muestra,dn1 dn2 dn4,dn3,meta1,288,0,0,
+2026-11-07,18:38:23,muestra,dn1 dn2 dn4,dn3,meta1,288,0,0,
+2026-11-07,18:38:30,muestra,dn1 dn2 dn4,dn3,meta1,288,0,0,
+2026-11-07,18:38:36,muestra,dn1 dn2 dn4,dn3,meta1,288,0,0,
+2026-11-07,18:38:42,muestra,dn1 dn2 dn4,dn3,meta1,288,0,0,
+2026-11-07,18:38:48,muestra,dn1 dn2 dn4,dn3,meta1,288,288,0,
+2026-11-07,18:39:01,muestra,dn1 dn2 dn4,dn3,meta1,250,250,0,
+2026-11-07,18:39:11,muestra,dn1 dn2 dn4,dn3,meta1,226,226,0,
+2026-11-07,18:39:20,muestra,dn1 dn2 dn4,dn3,meta1,183,183,0,
+2026-11-07,18:39:27,muestra,dn1 dn2 dn4,dn3,meta1,166,166,0,
+2026-11-07,18:39:40,muestra,dn1 dn2 dn4,dn3,meta1,138,138,0,
+2026-11-07,18:39:53,muestra,dn1 dn2 dn4,dn3,meta1,118,118,0,
+2026-11-07,18:40:04,muestra,dn1 dn2 dn4,dn3,meta1,97,96,0,
+2026-11-07,18:40:31,muestra,dn2 dn4,dn1 dn3,meta1,308,96,0,
+2026-11-07,18:40:41,muestra,dn1 dn2 dn4,dn3,meta1,95,27,78,
+2026-11-07,18:40:55,muestra,dn1 dn2 dn4,dn3,meta1,95,95,0,
+2026-11-07,18:41:09,muestra,dn1 dn2 dn4,dn3,meta1,95,95,0,
+2026-11-07,18:41:21,muestra,dn1 dn2 dn4,dn3,meta1,95,95,0,
+2026-11-07,18:41:31,muestra,dn1 dn2 dn4,dn3,meta1,95,95,0,
+2026-11-07,18:41:41,muestra,dn1 dn2 dn4,dn3,meta1,95,95,0,
+2026-11-07,18:41:50,muestra,dn1 dn2 dn4,dn3,meta1,87,87,0,
+2026-11-07,18:41:58,muestra,dn1 dn2 dn4,dn3,meta1,52,72,297,
+2026-11-07,18:42:05,muestra,dn1 dn2 dn4,dn3,meta1,0,0,103,
+2026-11-07,18:42:11,evento,,,,,,,"arrancando la zona c: etcd3 meta3 dn3"
+2026-11-07,18:42:12,muestra,dn1 dn2 dn4,dn3,meta1,0,0,82,
+2026-11-07,18:42:19,muestra,dn1 dn2 dn3 dn4,-,meta1,0,0,288,
+2026-11-07,18:42:24,evento,,,,,,,"zona c encendida otra vez"
+2026-11-07,18:42:25,muestra,dn1 dn2 dn3 dn4,-,meta1,0,0,167,
+2026-11-07,18:42:32,muestra,dn1 dn2 dn3 dn4,-,meta1,0,0,0,
+2026-11-07,18:42:39,muestra,dn1 dn2 dn3 dn4,-,meta1,0,0,0,

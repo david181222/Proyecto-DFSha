@@ -80,3 +80,37 @@ login_sessions() {
     out=$(printf '%s\n' "$password" | dfs_input "$who" login --user "$user" 2>&1) || die "la sesión $who no pudo entrar: $(error_of "$out")"
   done
 }
+
+# --- Copias de cada bloque (las usa fallos.sh, tarea 27; smoke.sh tiene su propia copia) ---
+
+# Zona de cada DataNode vivo, de dfs status: "dn1=us-east-1a,dn2=...".
+zones_from_status() { awk '$2 == "vivo" { printf "%s=%s,", $1, $3 }' <<<"$1"; }
+
+# Una línea por bloque de dfs stat --blocks: "índice copias_vivas zonas nodos_vivos". Un nodo
+# caído va seguido de "(caído)" y su copia no cuenta. $1: la salida de zones_from_status.
+block_report() {
+  awk -v zones="$1" '
+    BEGIN {
+      n = split(zones, pairs, ",")
+      for (i = 1; i <= n; i++) { split(pairs[i], kv, "="); zone[kv[1]] = kv[2] }
+    }
+    NR > 2 && $1 ~ /^[0-9]+$/ {
+      k = 0
+      for (i = 4; i <= NF; i++) {
+        t = $i
+        gsub(",", "", t)
+        if (t == "(caído)") { dead[k] = 1; continue }
+        if (t == "-") continue
+        k++; node[k] = t; dead[k] = 0
+      }
+      alive = 0; zl = " "; nl = ""
+      for (j = 1; j <= k; j++) {
+        if (dead[j]) continue
+        alive++
+        nl = nl (nl == "" ? "" : ",") node[j]
+        z = zone[node[j]]
+        if (z != "" && index(zl, " " z " ") == 0) zl = zl z " "
+      }
+      print $1, alive, split(zl, tmp, " "), (nl == "" ? "-" : nl)
+    }'
+}

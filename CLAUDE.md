@@ -48,7 +48,7 @@ src/
   metaserver/           MetaServer: API pública (8443) e interna (8444)
   datanode/             DataNode: API pública (9443) e interna (9444)
   dfs_client/           cliente y CLI dfs
-infra/                  scripts de AWS (DA-15): create, allow-ssh, destroy, deploy y ssh; config.sh
+infra/                  scripts de AWS (DA-15): create, allow-ssh, destroy, deploy, ssh y vm; config.sh
 scripts/                export_openapi.py (OpenAPI) y gen_secrets.py (CA, certificados y secretos)
   pruebas/              scripts de prueba, iguales en local y en AWS (smoke.sh: prueba de humo)
 secrets/                secretos generados en local; git lo ignora
