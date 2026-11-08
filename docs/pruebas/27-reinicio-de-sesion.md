@@ -136,6 +136,8 @@ En el ensayo local, el líder nuevo no ordenó copias durante su espera, aunque 
 
 ## Pendientes
 
-- **Los mensajes INFO del logger `dfsha` no salen en `docker logs`.** Solo salen los WARNING. Ningún módulo configura un handler, y uvicorn solo configura los suyos. Por eso no se ven "líder: meta1 ganó la elección", "líder: copia de ..." ni "limpieza: borrado ...".
-  - Esta prueba no usa esos mensajes: mide desde el arranque del contenedor del líder.
-  - Con ellos, la evidencia mostraría la hora exacta de la elección y de cada orden. Lo decide el equipo; sería un cambio pequeño en `src/dfs_common/serve.py` o en los `__main__` de cada servicio.
+- **Resuelto después de las corridas: los mensajes INFO del logger `dfsha` no salían en `docker logs`.** Solo salían los WARNING, porque ningún módulo configuraba un handler y uvicorn solo configura los suyos. Por eso no se veían "líder: meta1 ganó la elección", "líder: copia de ..." ni "limpieza: borrado ...".
+  - Ahora `configure_logging()` en `src/dfs_common/serve.py` los manda a stderr desde INFO, con la hora. Lo usan el MetaServer y el DataNode al arrancar.
+  - Son 6 mensajes y salen solo cuando pasa algo: la elección, una copia, un borrado o el registro de un DataNode. Ninguno se repite por latido.
+  - Prueba: `test_info_messages_of_dfsha_reach_stderr_once_for_docker_logs` en `tests/test_serve.py`.
+  - Esta prueba no usaba esos mensajes: mide desde el arranque del contenedor del líder. En una corrida nueva, `docker logs meta1` mostraría la hora exacta de la elección y de cada orden. Las corridas de este documento son de antes del cambio y no los tienen.

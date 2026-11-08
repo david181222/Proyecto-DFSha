@@ -9,6 +9,9 @@ hilo de fondo; httpx.Client se puede compartir entre hilos.
 - Llamadas al MetaServer: empiezan por el último que respondió. Ante un error de conexión o un
   503, pasan al siguiente. Si ninguno responde, se vuelve a descubrir una vez y se reintenta una
   vez; si tampoco, 503 E_UNAVAILABLE. Es el mismo comportamiento de MetaClient en el DataNode.
+  Si respondieron, pero todos con 503, no se vuelve a descubrir (la lista sirve: están vivos) y
+  el error es el del último 503, con su mensaje. Así se ve el motivo ("no hay 2 DataNodes vivos
+  que cubran 2 zonas") y no un "ningún MetaServer respondió" falso.
   Riesgo aceptado: una escritura que sí se aplicó y cuya respuesta se perdió se repite en otro
   MetaServer, y puede responder 409 o 404 aunque haya salido bien (contrato, sección 6).
 - Bloques: put_block y get_block van directo al DataNode, sin MetaServer. Si el DataNode no
@@ -210,8 +213,13 @@ class DfsApi:
         raise DFSError(ErrorCode.E_UNAVAILABLE, "ninguna semilla de DFS_META_SEEDS respondió")
 
     def _send_to_any(self, method: str, path: str, request: dict) -> httpx.Response | None:
-        """Prueba los MetaServers desde el último que respondió. None si ninguno respondió."""
+        """Prueba los MetaServers desde el último que respondió.
+
+        Si todos los que respondieron dieron 503, devuelve el último 503: su cuerpo dice el motivo
+        (por ejemplo, "no hay 2 DataNodes vivos que cubran 2 zonas"). None si ninguno respondió.
+        """
         count = len(self._metaservers)
+        last_503 = None
         for step in range(count):
             index = (self._current + step) % count
             try:
@@ -219,10 +227,11 @@ class DfsApi:
             except httpx.TransportError:
                 continue
             if response.status_code == 503:
+                last_503 = response
                 continue
             self._current = index
             return response
-        return None
+        return last_503
 
     def _block_request(self, method: str, address: str, hash: str, pase: str, **request: Any) -> httpx.Response:
         headers = {**request.pop("headers", {}), "Authorization": f"Bearer {pase}"}
