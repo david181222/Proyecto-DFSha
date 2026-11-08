@@ -158,7 +158,7 @@ Las dos corridas terminaron en `RESULTADO: PASA`, con los 80 SHA-256 iguales. Ca
 
 ### 5.2 AWS
 
-Corrida del 8 de noviembre de 2026, de 14:45:30 a 15:03:55 UTC (18 min 25 s), en la VM5, con `DFS_W=2`: 1, 64 y 512 MiB; 1 y 4 clientes; 5 repeticiones más 1 de calentamiento. Comando: `./infra/ssh.sh vm5 'scripts/pruebas/perf.sh --env aws --csv /tmp/25-rendimiento-aws.csv'`; el CSV se dejó fuera del clon de la VM5 y se copió a `datos/25-rendimiento-aws.csv`. Terminó en `RESULTADO: PASA`, con los 80 SHA-256 iguales.
+Corrida del 8 de noviembre de 2026, de 14:45:30 a 15:03:55 UTC (18 min 25 s), en la VM5, con `DFS_W=2`: 1, 64 y 512 MiB; 1 y 4 clientes; 5 repeticiones más 1 de calentamiento. Comando: `./infra/ssh.sh vm5 'scripts/pruebas/perf.sh --env aws --csv /tmp/25-rendimiento-aws.csv'`; el CSV se dejó fuera del clon de la VM5 y se copió a `datos/25-rendimiento-aws.csv`. Terminó en `RESULTADO: PASA`: las 90 descargas (75 medidas y 15 de calentamiento) dieron el SHA-256 del original.
 
 | Entorno | W | Caché | Operación | MiB | Clientes | n | Mediana (s) | p95 (s) | MiB/s por cliente (mediana) | MiB/s agregado (mediana) | SHA-256 |
 |---|---|---|---|---|---|---|---|---|---|---|---|

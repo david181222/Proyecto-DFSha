@@ -4,6 +4,25 @@ Sistema de archivos distribuido con alta disponibilidad, rendimiento y seguridad
 
 Equipo: Edwin David Vélez Rodríguez, José Elías Díaz Marín y Santiago Andrés Martínez Lora ([contribuciones](#equipo-y-contribuciones)).
 
+## Contenido
+
+1. [Qué es](#qué-es)
+2. [Arquitectura](#arquitectura)
+   - [Semántica de los archivos (RF3)](#semántica-de-los-archivos-rf3)
+   - [Garantías](#garantías)
+   - [Despliegue](#despliegue)
+3. [Estructura del repositorio](#estructura-del-repositorio)
+4. [Instalación](#instalación)
+5. [Pruebas automáticas](#pruebas-automáticas)
+6. [Correr en local](#correr-en-local)
+7. [Despliegue en AWS](#despliegue-en-aws)
+8. [Evidencias](#evidencias)
+9. [Limitaciones conocidas](#limitaciones-conocidas)
+10. [Equipo y contribuciones](#equipo-y-contribuciones)
+11. [Contribuir](#contribuir)
+
+Documentos de diseño: [decisiones de arquitectura](docs/decisiones.md) · [contrato de las APIs](docs/contratos.md) · [evidencias de las pruebas](docs/pruebas/README.md).
+
 ## Qué es
 
 DFSha guarda archivos grandes repartidos en varios nodos. Cada archivo se parte en bloques de 8 MiB, y cada bloque queda en 3 DataNodes de al menos 2 zonas de disponibilidad. Los metadatos (nombres, versiones, dónde está cada bloque, usuarios y locks) viven en un clúster de etcd de 3 nodos, detrás de 3 MetaServers sin estado. El cliente `dfs` habla con los MetaServers para todo lo que es control y envía y recibe los bloques directamente de los DataNodes.
