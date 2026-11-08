@@ -8,10 +8,10 @@ hilo de fondo; httpx.Client se puede compartir entre hilos.
   /api/v1/cluster/metaservers y guarda la lista, con el public_port de cada uno.
 - Llamadas al MetaServer: empiezan por el último que respondió. Ante un error de conexión o un
   503, pasan al siguiente. Si ninguno responde, se vuelve a descubrir una vez y se reintenta una
-  vez; si tampoco, 503 E_UNAVAILABLE. Es el mismo comportamiento de MetaClient en el DataNode.
-  Si respondieron, pero todos con 503, no se vuelve a descubrir (la lista sirve: están vivos) y
-  el error es el del último 503, con su mensaje. Así se ve el motivo ("no hay 2 DataNodes vivos
-  que cubran 2 zonas") y no un "ningún MetaServer respondió" falso.
+  vez; si tampoco, 503 E_UNAVAILABLE. Hasta aquí es lo mismo que hace MetaClient en el DataNode.
+  A diferencia de MetaClient, si respondieron, pero todos con 503, no se vuelve a descubrir (la
+  lista sirve: están vivos) y el error es el del último 503, con su mensaje. Así se ve el motivo
+  ("no hay 2 DataNodes vivos que cubran 2 zonas") y no un "ningún MetaServer respondió" falso.
   Riesgo aceptado: una escritura que sí se aplicó y cuya respuesta se perdió se repite en otro
   MetaServer, y puede responder 409 o 404 aunque haya salido bien (contrato, sección 6).
 - Bloques: put_block y get_block van directo al DataNode, sin MetaServer. Si el DataNode no

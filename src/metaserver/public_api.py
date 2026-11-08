@@ -8,9 +8,8 @@ Toda ruta de archivo se resuelve dentro del espacio del usuario del token, así 
 aquí no existe "ruta de otro usuario". 403 E_FORBIDDEN solo aparece en /admin sin
 rol de administrador y con un lock_id o upload_id de otro usuario.
 
-Implementadas: health, login y POST /admin/users (tarea 07); ls, stat, mkdir, rmdir
-y rm (tarea 08); pedir, renovar y liberar locks (tarea 11); GET /files/blocks y las
-subidas (tarea 12); y la lista de MetaServers y /admin/status (tarea 13).
+Rutas: health, login y POST /admin/users; ls, stat, mkdir, rmdir y rm; pedir, renovar y
+liberar locks; GET /files/blocks y las subidas; y la lista de MetaServers y /admin/status.
 
 Al arrancar, el lifespan conecta con etcd, lee la clave del JWT y la de los pases, crea el
 primer administrador y registra este MetaServer en /nodes/meta/, con una tarea de fondo que

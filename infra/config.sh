@@ -1,7 +1,7 @@
 # shellcheck shell=bash disable=SC2034
 # DFSha · configuración común de los scripts de AWS (tarea 23; DA-13, DA-15).
 #
-# Solo valores. La cargan con source create.sh, allow-ssh.sh, destroy.sh, deploy.sh y ssh.sh.
+# Solo valores. La cargan con source create.sh, allow-ssh.sh, destroy.sh, deploy.sh, ssh.sh y vm.sh.
 # Nada de aquí cambia entre sesiones del Learner Lab ni depende de una cuenta: las IP y los IDs
 # de las VMs se buscan cada vez por sus etiquetas.
 #

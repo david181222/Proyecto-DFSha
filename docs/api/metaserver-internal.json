@@ -3,7 +3,7 @@
   "info": {
     "title": "DFSha · MetaServer interno",
     "description": "API interna del MetaServer (puerto 8444, mTLS). Contrato legible en docs/contratos.md.",
-    "version": "0.1.0"
+    "version": "1.0.0"
   },
   "paths": {
     "/api/v1/internal/register": {
