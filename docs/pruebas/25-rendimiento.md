@@ -24,8 +24,8 @@ Cada condición se repite 5 veces, cada vez con contenido aleatorio nuevo, y se 
 | | Ensayo local | AWS |
 |---|---|---|
 | Dónde | `compose.local.yml`, un PC con Linux (16 núcleos, 13 GiB de RAM, Docker 29.9.2) | 5 VMs t3.small de us-east-1; el script corre en la VM5 (us-east-1a) |
-| Commit | `b31d2b9` más los scripts de la tarea 25, sin commit todavía | *(se llena en la corrida)* |
-| DA-16 | `scripts/pruebas/pruebas.env`, con `DFS_W=2` y después `DFS_W=3` en el `.env` de la raíz | `scripts/pruebas/pruebas.env`, con `DFS_W=2` y después `DFS_W=3` |
+| Commit | `b31d2b9` más los scripts de la tarea 25, sin commit todavía | `7eedf22` (`main`, después del cierre), en el clúster de Edwin |
+| DA-16 | `scripts/pruebas/pruebas.env`, con `DFS_W=2` y después `DFS_W=3` en el `.env` de la raíz | `scripts/pruebas/pruebas.env`, solo con `DFS_W=2` (ver 5.2) |
 | Tamaños, clientes y repeticiones | 1, 16 y 64 MiB; 1 y 4 clientes; 2 repeticiones más 1 de calentamiento | 1, 64 y 512 MiB; 1 y 4 clientes; 5 repeticiones más 1 de calentamiento |
 | Datos | `datos/25-rendimiento-local.csv` | `datos/25-rendimiento-aws.csv` |
 
@@ -154,11 +154,34 @@ Las dos corridas terminaron en `RESULTADO: PASA`, con los 80 SHA-256 iguales. Ca
 
 **Caso grande** (no está en el CSV): con W=3 se corrió una vez 512 MiB, con 1 y con 4 clientes, para comprobar que los 4 × 512 MiB caben en memoria y disco y para estimar los tiempos de AWS. Con 1 cliente: `put` 7,07 s (72,4 MiB/s) y `get` 4,09 s (125,3 MiB/s). Con 4 a la vez: `put` de 2048 MiB en 25,3 s (80,9 MiB/s agregados) y `get` en 10,7 s (191,4 MiB/s). Los SHA-256 coincidieron. La repetición entera de 4 × 512 MiB, contando la generación de los archivos y los SHA-256, tardó unos 70 s.
 
-**Comparación con la tarea 22.** La medición local de referencia (`datos/22-referencia-local.csv`, 512 MiB, W=2, 5 repeticiones) dio medianas de 23,4 MiB/s en `put` y 43,5 MiB/s en `get`. Aquí, con 512 MiB, salió unas tres veces más rápido. La diferencia es de máquina, no de código: el commit de la tarea 22 (`900c790`) y este tienen el mismo camino de `put` y `get`, y la tarea 22 se midió en otro PC, con Docker Desktop en Windows. En local, los 4 DataNodes, los 3 MetaServers y el cliente comparten la CPU y el disco de un solo PC, así que esas cifras sirven para comparar condiciones entre sí, no para predecir AWS.
+**Comparación con la tarea 22.** *Nota del cierre: el caso grande se corrió con `DFS_W=3` y la referencia de la tarea 22, con `DFS_W=2`, así que no solo cambia la máquina. W=3 hace más lento el `put` (sección 5.1) y no toca el `get`, de modo que la diferencia de máquina, si acaso, es mayor que la que se ve.* La medición local de referencia (`datos/22-referencia-local.csv`, 512 MiB, W=2, 5 repeticiones) dio medianas de 23,4 MiB/s en `put` y 43,5 MiB/s en `get`. Aquí, con 512 MiB, salió unas tres veces más rápido. La diferencia es de máquina, no de código: el commit de la tarea 22 (`900c790`) y este tienen el mismo camino de `put` y `get`, y la tarea 22 se midió en otro PC, con Docker Desktop en Windows. En local, los 4 DataNodes, los 3 MetaServers y el cliente comparten la CPU y el disco de un solo PC, así que esas cifras sirven para comparar condiciones entre sí, no para predecir AWS.
 
 ### 5.2 AWS
 
-*Pendiente de la corrida en AWS: el resumen de `datos/25-rendimiento-aws.csv` con W=2 y W=3, la hora de inicio y de fin de cada corrida, `df -h /` en un DataNode al final y, si se hace, el control en frío.*
+Corrida del 8 de noviembre de 2026, de 14:45:30 a 15:03:55 UTC (18 min 25 s), en la VM5, con `DFS_W=2`: 1, 64 y 512 MiB; 1 y 4 clientes; 5 repeticiones más 1 de calentamiento. Comando: `./infra/ssh.sh vm5 'scripts/pruebas/perf.sh --env aws --csv /tmp/25-rendimiento-aws.csv'`; el CSV se dejó fuera del clon de la VM5 y se copió a `datos/25-rendimiento-aws.csv`. Terminó en `RESULTADO: PASA`, con los 80 SHA-256 iguales.
+
+| Entorno | W | Caché | Operación | MiB | Clientes | n | Mediana (s) | p95 (s) | MiB/s por cliente (mediana) | MiB/s agregado (mediana) | SHA-256 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| aws | 2 | caliente | put | 1 | 1 | 5 | 0,20 | 0,22 | 5,0 | - | - |
+| aws | 2 | caliente | get | 1 | 1 | 5 | 0,06 | 0,06 | 17,3 | - | 5/5 |
+| aws | 2 | caliente | put | 1 | 4 | 20 | 0,34 | 0,37 | 3,0 | 10,8 | - |
+| aws | 2 | caliente | get | 1 | 4 | 20 | 0,11 | 0,18 | 9,4 | 33,3 | 20/20 |
+| aws | 2 | caliente | put | 64 | 1 | 5 | 1,27 | 1,30 | 50,4 | - | - |
+| aws | 2 | caliente | get | 64 | 1 | 5 | 0,79 | 0,86 | 81,0 | - | 5/5 |
+| aws | 2 | caliente | put | 64 | 4 | 20 | 3,65 | 3,83 | 17,5 | 67,2 | - |
+| aws | 2 | caliente | get | 64 | 4 | 20 | 2,58 | 2,83 | 24,8 | 96,2 | 20/20 |
+| aws | 2 | caliente | put | 512 | 1 | 5 | 8,64 | 9,13 | 59,2 | - | - |
+| aws | 2 | caliente | get | 512 | 1 | 5 | 5,39 | 5,42 | 95,0 | - | 5/5 |
+| aws | 2 | caliente | put | 512 | 4 | 20 | 32,45 | 33,98 | 15,8 | 62,3 | - |
+| aws | 2 | caliente | get | 512 | 4 | 20 | 33,94 | 35,24 | 15,1 | 60,0 | 20/20 |
+
+Cómo se lee:
+
+- **Tamaño (DA-03).** Con 1 MiB pesa la latencia fija: lock, reserva, envío y commit suman 0,20 s en el `put`. Con 64 y 512 MiB los bloques viajan en paralelo y el throughput de un cliente llega a ≈50-60 MiB/s en el `put` y ≈80-95 MiB/s en el `get`.
+- **1 frente a 4 clientes.** Con archivos chicos y medianos, el agregado sube con 4 clientes: 1 MiB, de 5,0 a 10,8 MiB/s en el `put`; 64 MiB, de 81 a 96 MiB/s en el `get`. Con 512 MiB se satura: 4 clientes suben 2 GiB a 62 MiB/s en total, casi lo mismo que uno solo, y el `get` agregado (60 MiB/s) queda por debajo del de un cliente (95 MiB/s). El límite es la VM5, una t3.small por cuya red pasa todo lo que suben y bajan los 4 clientes, y que además genera los archivos y calcula los SHA-256.
+- **W=2 frente a W=3 (DA-04).** En AWS solo se corrió con W=2: la corrida con W=3 se dejó fuera por tiempo. La comparación de W está en el ensayo local (5.1), donde W=3 solo encarece el `put`. Las dos corridas no se comparan entre sí, porque cambian el entorno y, en parte, W.
+- **Disco.** Con la limpieza de `pruebas.env`, ningún DataNode bajó de `--min-free-gib`; al final, cada disco de los DataNodes tenía 15 GiB libres de 19 (`df -h /`, 19 % de uso).
+- **p95.** Con 1 cliente es la peor de las 5 repeticiones (sección 4.5); la peor se aleja a lo más un 10 % de la mediana (`put` de 1 MiB).
 
 ### 5.3 Lo que se corrigió en el ensayo
 
@@ -166,7 +189,7 @@ En el primer ensayo, la fila "todos" usaba el tiempo de pared. Con 1 MiB y 4 cli
 
 ## 6. Conclusión
 
-*Pendiente de la corrida en AWS.* En local, el método funciona: contenido nuevo en cada repetición, SHA-256 verificado siempre, 4 clientes sin pisarse y W cambiado sin tocar el código. Las tendencias ya se ven: el throughput sube con el tamaño, el agregado sube con 4 clientes, y W=3 solo encarece el `put`.
+En AWS, con W=2, el throughput de un cliente crece con el tamaño hasta ≈60 MiB/s en el `put` y ≈95 MiB/s en el `get` de 512 MiB, y con 4 clientes el agregado sube con archivos chicos y medianos, pero con 512 MiB lo limita la VM del cliente. Todos los SHA-256 coincidieron. En local, el método funciona: contenido nuevo en cada repetición, SHA-256 verificado siempre, 4 clientes sin pisarse y W cambiado sin tocar el código. Las tendencias ya se ven: el throughput sube con el tamaño, el agregado sube con 4 clientes, y W=3 solo encarece el `put`.
 
 ## 7. Para el video
 

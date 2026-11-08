@@ -25,7 +25,7 @@ Comparar el SHA-256 del archivo entero es más fuerte que mirar solo los bytes e
 | | Ensayo local | AWS |
 |---|---|---|
 | Dónde | `compose.local.yml`, un PC con Linux | VM5, contenedor `client` |
-| Commit | `b31d2b9` más los scripts de la tarea 25, sin commit todavía | *(se llena en la corrida)* |
+| Commit | `b31d2b9` más los scripts de la tarea 25, sin commit todavía | `7eedf22` (`main`, después del cierre), en el clúster de Edwin |
 | DA-16 | `scripts/pruebas/pruebas.env` y `DFS_W=3`; bloques de 8 MiB | `scripts/pruebas/pruebas.env` y `DFS_W=2`; bloques de 8 MiB |
 
 ## 4. Pasos
@@ -34,7 +34,7 @@ Comparar el SHA-256 del archivo entero es más fuerte que mirar solo los bytes e
 
 ```bash
 scripts/pruebas/rf3.sh                              # local
-./infra/ssh.sh vm5 scripts/pruebas/rf3.sh --env aws # AWS, después de ./infra/deploy.sh --ref t25-pruebas-carga --times scripts/pruebas/pruebas.env
+./infra/ssh.sh vm5 scripts/pruebas/rf3.sh --env aws # AWS, después de ./infra/deploy.sh --times scripts/pruebas/pruebas.env
 ```
 
 `scripts/pruebas/rf3.sh` corre los dos `dfs shell` en el contenedor `client`, cada uno con su propia sesión. A recibe sus comandos por una FIFO: queda abierto en `rw` mientras B lee, y su `close` ocurre solo cuando B terminó, sin depender de un `sleep`. El archivo es de 20 MiB (3 bloques de 8 MiB), con `VERSION-1` en el offset 12 582 912, a mitad del bloque 1. A escribe ahí `VERSION-2`.
@@ -130,11 +130,51 @@ RESULTADO: PASA
 
 ### 5.2 AWS
 
-*Pendiente de la corrida en AWS: la salida de `rf3.sh --env aws`, recortada como en 5.1.*
+Salida de `scripts/pruebas/rf3.sh --env aws` del 8 de noviembre de 2026, de 14:44:42 a 14:45:10 UTC, recortada como en 5.1:
+
+```text
+==> commit 7eedf22, DFS_W=2, bloques de 8 MiB
+==> archivo de 20 MiB; A escribe en el offset 12582912, dentro del bloque 1
+PASA   put de la versión 1: /rf3-20261108-144449-32872.bin: versión 1, 20.0 MiB en 3 bloques (3 enviados, 0 ya estaban), 0.69 s, 29.2 MiB/s
+
+### A abre en rw y escribe; no cierra
+A: dfs> fd 3: /rf3-20261108-144449-32872.bin en modo rw, versión 1, 20971520 bytes
+A: dfs> 9 bytes escritos
+A: dfs> VERSION-2
+
+### B lee mientras A no ha cerrado
+B: dfs> fd 3: /rf3-20261108-144449-32872.bin en modo r, versión 1, 20971520 bytes
+B: dfs> VERSION-1
+B: dfs> 20971520 bytes en /tmp/dfs-rf3-…/b-antes.bin
+PASA   G2: con A abierto, B ve la versión 1 completa (VERSION-1, SHA-256 2fd28800c63069b7... de la versión 1)
+
+### A cierra
+A: dfs> fd 3 cerrado: /rf3-20261108-144449-32872.bin versión 2
+PASA   A publicó la versión 2
+
+### B lee después del close de A
+B: dfs> fd 3: /rf3-20261108-144449-32872.bin en modo r, versión 2, 20971520 bytes
+B: dfs> VERSION-2
+PASA   G3: después del close, B ve la versión 2 completa (VERSION-2, SHA-256 e5f6cd50cf6292bb... esperado)
+
+### A anexa (modo a) y B lee el final
+B: dfs> fd 3: /rf3-20261108-144449-32872.bin en modo r, versión 3, 20971525 bytes
+B: dfs> +COLA
+PASA   modo a: versión 3, 20971525 bytes, con +COLA al final
+
+### A reemplaza (modo w) y B lee
+B: dfs> fd 3: /rf3-20261108-144449-32872.bin en modo r, versión 4, 15 bytes
+B: dfs> contenido nuevo
+PASA   modo w: versión 4, 15 bytes, solo el contenido nuevo
+
+RESULTADO: PASA
+```
+
+La corrida completa tardó 28 s. En el ensayo de la demostración, la misma secuencia a mano con dos `dfs shell` (sección 4.2) dio lo mismo: B leyó `versión 1` y `VERSION-1` con A abierto, y `versión 2` y `VERSION-2` después del `close`.
 
 ## 6. Conclusión
 
-En el ensayo local se cumple la semántica de DA-14. Mientras A tiene el archivo abierto en `rw` con un cambio sin publicar, B ve la versión 1 entera, comprobada con el SHA-256 de todo el archivo (G2). Apenas A cierra, un `open` nuevo ve la versión 2 entera (G3). `a` y `w` publican las versiones 3 y 4 con el tamaño esperado. *Lo de AWS queda pendiente de la corrida.*
+Se cumple la semántica de DA-14, en local (`DFS_W=3`) y en AWS (`DFS_W=2`). Mientras A tiene el archivo abierto en `rw` con un cambio sin publicar, B ve la versión 1 entera, comprobada con el SHA-256 de todo el archivo (G2). Apenas A cierra, un `open` nuevo ve la versión 2 entera (G3). `a` y `w` publican las versiones 3 y 4 con el tamaño esperado. W no cambia lo que se comprueba aquí, que depende del commit y no de cuántas copias se esperan.
 
 ## 7. Para el video
 
