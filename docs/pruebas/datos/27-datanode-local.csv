@@ -1,0 +1,35 @@
+fecha,hora,tipo,vivos,caidos,lider,menos_de_3,copy,delete,detalle
+2026-11-07,18:19:01,evento,,,,,,,"inicio: datanode en local (DFS_W=2, DFS_REREPLICATE_AFTER_S=60, DFS_LEADER_GRACE_S=60)"
+2026-11-07,18:19:04,muestra,dn1 dn2 dn3 dn4,-,meta1,0,0,0,
+2026-11-07,18:19:10,muestra,dn1 dn2 dn3 dn4,-,meta1,0,0,0,
+2026-11-07,18:19:19,evento,,,,,,,"empieza get de /fallos-dn-a-20261107-131854.bin"
+2026-11-07,18:19:22,muestra,dn1 dn2 dn3 dn4,-,meta1,0,0,0,
+2026-11-07,18:19:22,evento,,,,,,,"deteniendo dn4"
+2026-11-07,18:19:36,muestra,dn1 dn2 dn3 dn4,-,meta1,0,0,0,
+2026-11-07,18:19:36,evento,,,,,,,"dn4 detenido (docker compose stop)"
+2026-11-07,18:19:36,evento,,,,,,,"termina get de /fallos-dn-a-20261107-131854.bin (código 0)"
+2026-11-07,18:19:38,evento,,,,,,,"dn4 arrancado otra vez"
+2026-11-07,18:19:39,evento,,,,,,,"empieza put de /fallos-dn-b-20261107-131854.bin"
+2026-11-07,18:19:41,evento,,,,,,,"deteniendo dn4"
+2026-11-07,18:19:43,muestra,dn1 dn2 dn3 dn4,-,meta1,1,0,0,
+2026-11-07,18:19:44,evento,,,,,,,"dn4 detenido (docker compose stop)"
+2026-11-07,18:19:51,muestra,dn1 dn2 dn3 dn4,-,meta1,1,1,0,
+2026-11-07,18:19:57,muestra,dn1 dn2 dn3 dn4,-,meta1,4,0,0,
+2026-11-07,18:20:03,muestra,dn1 dn2 dn3,dn4,meta1,23,4,0,
+2026-11-07,18:20:09,muestra,dn1 dn2 dn3,dn4,meta1,21,0,0,
+2026-11-07,18:20:15,muestra,dn1 dn2 dn3,dn4,meta1,21,2,0,
+2026-11-07,18:20:22,muestra,dn1 dn2 dn3,dn4,meta1,19,0,0,
+2026-11-07,18:20:27,evento,,,,,,,"termina put de /fallos-dn-b-20261107-131854.bin (código 0)"
+2026-11-07,18:20:28,muestra,dn1 dn2 dn3,dn4,meta1,19,0,0,
+2026-11-07,18:20:36,muestra,dn1 dn2 dn3,dn4,meta1,19,0,0,
+2026-11-07,18:20:43,muestra,dn1 dn2 dn3,dn4,meta1,19,0,0,
+2026-11-07,18:20:50,muestra,dn1 dn2 dn3,dn4,meta1,19,0,0,
+2026-11-07,18:20:56,muestra,dn1 dn2 dn3,dn4,meta1,19,0,0,
+2026-11-07,18:21:02,muestra,dn1 dn2 dn3,dn4,meta1,19,19,0,
+2026-11-07,18:21:10,muestra,dn1 dn2 dn3,dn4,meta1,10,10,0,
+2026-11-07,18:21:17,muestra,dn1 dn2 dn3,dn4,meta1,0,0,0,
+2026-11-07,18:21:23,muestra,dn1 dn2 dn3,dn4,meta1,0,0,0,
+2026-11-07,18:21:25,evento,,,,,,,"dn4 arrancado otra vez"
+2026-11-07,18:21:30,muestra,dn1 dn2 dn3 dn4,-,meta1,0,0,0,
+2026-11-07,18:21:36,muestra,dn1 dn2 dn3 dn4,-,meta1,0,0,19,
+2026-11-07,18:21:42,muestra,dn1 dn2 dn3 dn4,-,meta1,0,0,0,

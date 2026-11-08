@@ -12,6 +12,7 @@ apps sin certificados.
 
 import asyncio
 import contextlib
+import logging
 import signal
 import ssl
 import threading
@@ -112,7 +113,24 @@ async def serve(configs: list[uvicorn.Config]) -> int:
     return exit_codes[0] if exit_codes else 0
 
 
+def configure_logging() -> None:
+    """Los mensajes del logger "dfsha" desde INFO, a stderr: es lo que muestra docker logs.
+
+    Sin esto, Python solo muestra WARNING y más graves (su manejador de último recurso), y se
+    pierden "líder: meta1 ganó la elección", "líder: copia de ..." y "limpieza: borrado ...".
+    uvicorn configura solo sus propios loggers. propagate=False evita que un handler de la raíz
+    los repita.
+    """
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    logger = logging.getLogger("dfsha")
+    logger.handlers = [handler]
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
+
 def run(settings: Settings, public: tuple[FastAPI, int], internal: tuple[FastAPI, int]) -> None:
+    configure_logging()
     exit_code = asyncio.run(serve(server_configs(settings, public, internal)))
     if exit_code:
         raise SystemExit(exit_code)

@@ -148,6 +148,21 @@ def test_if_no_metaserver_answers_it_rediscovers_once_and_fails_with_503():
     assert [path for _, _, path in cluster.calls()].count("/api/v1/cluster/metaservers") == 1 + 3
 
 
+def test_if_all_answer_503_the_error_is_theirs_and_it_does_not_rediscover():
+    cluster = Cluster()
+    api = cluster.api()
+    api.mkdir("/a")
+    cluster.down.add("10.88.0.21")
+    cluster.busy.update({"10.88.0.22", "10.88.0.23"})
+    with pytest.raises(DFSError) as caught:
+        api.mkdir("/b")
+    assert caught.value.code == ErrorCode.E_UNAVAILABLE
+    assert caught.value.message == "etcd sin mayoría"  # el del 503, no "ningún MetaServer respondió"
+    mkdirs = [host for host, _, path in cluster.calls() if path == "/api/v1/fs/mkdir"]
+    assert mkdirs == ["10.88.0.21", "10.88.0.21", "10.88.0.22", "10.88.0.23"]
+    assert cluster.discoveries == 1
+
+
 def test_the_list_from_discovery_replaces_the_seeds():
     cluster = Cluster(listings=[listing("10.88.0.99")])
     cluster.api().mkdir("/docs")

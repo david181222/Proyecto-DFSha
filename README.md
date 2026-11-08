@@ -29,6 +29,7 @@ Equipo: Edwin Vélez, José Díaz y Santiago Martínez.
 | 23 | Scripts de AWS con la AWS CLI (`infra/`): `create.sh`, `allow-ssh.sh`, `destroy.sh` y `deploy.sh` (DA-15), más `ssh.sh` para entrar a una VM, con la configuración común en `config.sh`; y `compose.aws.yml`, con un perfil por tipo de VM. Cómo se usa cada uno está en su comentario inicial; los pasos probados en AWS llegan con la tarea 24 |
 | 24 | Primer despliegue en las 5 VMs de AWS: las siete comprobaciones pasan, con etcd, líder, humo de 512 MiB desde la VM5, red, reinicio y nueva sesión (`docs/pruebas/24-despliegue-aws.md`). Los pasos están en "Despliegue en AWS" |
 | 25 | Pruebas de carga, acceso RF3 y rendimiento: `scripts/pruebas/rf3.sh` (dos `dfs shell`, G2 y G3) y `scripts/pruebas/perf.sh` con su resumen `perf_summary.py` (put y get por tamaño, clientes y W), con los tiempos cortos de `scripts/pruebas/pruebas.env`. Ensayadas en local; evidencias en `docs/pruebas/25-*.md` |
+| 27 | Pruebas de fallos y de consistencia de la Tabla 21: `scripts/pruebas/fallos.sh` (un DataNode, zona c, zona b, consistencia con `iptables` y reinicio de sesión), con la línea de tiempo de `dfs status` que deja `scripts/pruebas/timeline.sh`, e `infra/vm.sh` para detener y encender VMs por nombre. Ensayadas en local y corridas en AWS con los tiempos normales: las cinco pasan. Evidencias en `docs/pruebas/27-*.md` |
 
 Ya funcionan todas las rutas de las cuatro APIs. Un DataNode guarda, entrega y reenvía bloques cifrados, se registra, late y cumple las órdenes del líder. Las decisiones de la tarea 15 están en el docstring de `src/datanode/agent.py`. Las decisiones de comportamiento de las tareas 06 a 08 están en la sección 11 de `docs/contratos.md`, y las de las tareas 09 y 10, en la sección 12. Las de la tarea 11 no cambian el contrato y están en el docstring de `src/metaserver/locks.py`; los cambios y decisiones de la tarea 12, en la sección 13; las de la tarea 13, en los docstrings de `datanodes.py`, `metaservers.py` y `status.py`; las de la tarea 18, en el de `src/dfs_client/files.py`; las de la tarea 19, en el de `leader.py`; las de la tarea 20, en el de `gc.py`; y las de la tarea 23, en los comentarios iniciales de `infra/deploy.sh`, `infra/lib.sh` y `compose.aws.yml`.
 
@@ -261,6 +262,16 @@ scripts/pruebas/smoke.sh --mib 64        # más rápido
 
 El comentario del inicio del script explica las demás opciones, como `--env aws` para correrlo en la VM5 o `--csv` para guardar los tiempos. Las evidencias de las pruebas van en `docs/pruebas/`.
 
+Pruebas de fallos (tarea 27). Cada caso empieza con el sistema sano, provoca el fallo, comprueba lecturas, escrituras y copias, lo restaura y termina cuando `dfs status` vuelve a estar sano. Deja la línea de tiempo con los eventos en `docs/pruebas/datos/27-CASO-local.csv`. El comentario del inicio de `scripts/pruebas/fallos.sh` explica cada caso y sus opciones.
+
+```bash
+scripts/pruebas/fallos.sh datanode        # dn4 se detiene durante un get y durante un put
+scripts/pruebas/fallos.sh zona-c          # etcd3, meta3 y dn3 detenidos
+scripts/pruebas/fallos.sh zona-b          # etcd2, meta2, dn2 y dn4 detenidos
+scripts/pruebas/fallos.sh consistencia    # iptables corta el puerto 9444 de dn4 durante un put
+scripts/pruebas/timeline.sh               # solo la línea de tiempo de dfs status, cada 5 s
+```
+
 **7. Apagar:**
 
 ```bash
@@ -324,8 +335,22 @@ Para actualizar el código después de un cambio en GitHub, se corre `./infra/de
 ./infra/ssh.sh vm5 scripts/pruebas/rf3.sh --env aws      # RF3 con dos clientes (tarea 25)
 ./infra/ssh.sh vm5 scripts/pruebas/perf.sh --env aws --csv docs/pruebas/datos/25-rendimiento-aws.csv  # rendimiento
 ./infra/ssh.sh vm5                                       # entrar a la VM del cliente
-./infra/ssh.sh vm4 docker compose stop dn                # detener dn4 (pruebas de fallos)
+./infra/ssh.sh vm4 docker compose stop dn                # detener dn4 a mano
 ./infra/ssh.sh vm4 docker compose start dn
+./infra/vm.sh status                                     # estado de cada VM
+./infra/vm.sh stop vm3                                   # detener una VM (aquí, la zona c) y esperar
+./infra/vm.sh start vm3                                  # encenderla y esperar a que responda por SSH
+```
+
+**Pruebas de fallos (tarea 27).** `scripts/pruebas/fallos.sh` corre en WSL, en la máquina que despliega, porque detiene VMs con la AWS CLI. La línea de tiempo (`timeline.sh`) corre en la VM5, así que el clúster tiene que estar desplegado desde una rama que tenga los dos scripts. Las pruebas oficiales usan los tiempos normales; después de un despliegue o de un cambio de líder, espera los 5 minutos de `DFS_LEADER_GRACE_S` antes de empezar.
+
+```bash
+scripts/pruebas/fallos.sh datanode --env aws
+scripts/pruebas/fallos.sh zona-c --env aws
+scripts/pruebas/fallos.sh zona-b --env aws
+scripts/pruebas/fallos.sh consistencia --env aws
+scripts/pruebas/fallos.sh sesion-antes --env aws     # después: End Lab, Start Lab, credenciales y ./infra/allow-ssh.sh
+scripts/pruebas/fallos.sh sesion-despues --env aws   # lo antes posible después de Start Lab
 ```
 
 Dentro de una VM, en `~/dfsha`, basta `docker compose ps`, `docker compose logs --tail 50 meta` o `docker compose stop dn`: el `.env` que escribió `deploy.sh` dice qué archivo y qué perfil usar. En la VM5, el cliente se usa como en local, sin `-f compose.local.yml`: `docker compose exec client dfs login --user admin`. La contraseña está en `secrets/aws/admin_password`, tanto en tu máquina como en la VM5.

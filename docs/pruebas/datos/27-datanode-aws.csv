@@ -1,0 +1,43 @@
+fecha,hora,tipo,vivos,caidos,lider,menos_de_3,copy,delete,detalle
+2026-11-07,20:14:38,evento,,,,,,,"inicio: datanode en aws (DFS_W=2, DFS_REREPLICATE_AFTER_S=60, DFS_LEADER_GRACE_S=300)"
+2026-11-07,20:14:42,muestra,dn1 dn2 dn3 dn4,-,meta3,0,0,0,
+2026-11-07,20:14:48,muestra,dn1 dn2 dn3 dn4,-,meta3,0,0,0,
+2026-11-07,20:14:54,muestra,dn1 dn2 dn3 dn4,-,meta3,0,0,0,
+2026-11-07,20:15:01,muestra,dn1 dn2 dn3 dn4,-,meta3,0,0,0,
+2026-11-07,20:15:03,evento,,,,,,,"empieza get de /fallos-dn-a-20261107-151425.bin"
+2026-11-07,20:15:05,evento,,,,,,,"deteniendo dn4"
+2026-11-07,20:15:08,muestra,dn1 dn2 dn3 dn4,-,meta3,0,0,0,
+2026-11-07,20:15:16,muestra,dn1 dn2 dn3 dn4,-,meta3,0,0,0,
+2026-11-07,20:15:17,evento,,,,,,,"dn4 detenido (docker compose stop)"
+2026-11-07,20:15:17,evento,,,,,,,"termina get de /fallos-dn-a-20261107-151425.bin (código 0)"
+2026-11-07,20:15:19,evento,,,,,,,"dn4 arrancado otra vez"
+2026-11-07,20:15:22,muestra,dn1 dn2 dn3 dn4,-,meta3,0,0,0,
+2026-11-07,20:15:28,muestra,dn1 dn2 dn3 dn4,-,meta3,0,0,0,
+2026-11-07,20:15:30,evento,,,,,,,"empieza put de /fallos-dn-b-20261107-151425.bin"
+2026-11-07,20:15:32,evento,,,,,,,"deteniendo dn4"
+2026-11-07,20:15:34,muestra,dn1 dn2 dn3 dn4,-,meta3,0,0,0,
+2026-11-07,20:15:34,evento,,,,,,,"dn4 detenido (docker compose stop)"
+2026-11-07,20:15:40,muestra,dn1 dn2 dn3 dn4,-,meta3,23,0,0,
+2026-11-07,20:15:43,evento,,,,,,,"termina put de /fallos-dn-b-20261107-151425.bin (código 0)"
+2026-11-07,20:15:46,muestra,dn1 dn2 dn3,dn4,meta3,80,32,0,
+2026-11-07,20:15:53,muestra,dn1 dn2 dn3,dn4,meta3,48,0,0,
+2026-11-07,20:16:00,muestra,dn1 dn2 dn3,dn4,meta3,48,0,0,
+2026-11-07,20:16:06,muestra,dn1 dn2 dn3,dn4,meta3,48,0,0,
+2026-11-07,20:16:12,muestra,dn1 dn2 dn3,dn4,meta3,48,0,0,
+2026-11-07,20:16:18,muestra,dn1 dn2 dn3,dn4,meta3,48,0,0,
+2026-11-07,20:16:23,muestra,dn1 dn2 dn3,dn4,meta3,48,0,0,
+2026-11-07,20:16:29,muestra,dn1 dn2 dn3,dn4,meta3,48,0,0,
+2026-11-07,20:16:35,muestra,dn1 dn2 dn3,dn4,meta3,48,0,0,
+2026-11-07,20:16:41,muestra,dn1 dn2 dn3,dn4,meta3,48,0,0,
+2026-11-07,20:16:47,muestra,dn1 dn2 dn3,dn4,meta3,48,48,0,
+2026-11-07,20:16:53,muestra,dn1 dn2 dn3,dn4,meta3,32,32,0,
+2026-11-07,20:16:59,muestra,dn1 dn2 dn3,dn4,meta3,0,0,0,
+2026-11-07,20:17:05,muestra,dn1 dn2 dn3,dn4,meta3,0,0,0,
+2026-11-07,20:17:11,muestra,dn1 dn2 dn3,dn4,meta3,0,0,0,
+2026-11-07,20:17:12,evento,,,,,,,"dn4 arrancado otra vez"
+2026-11-07,20:17:17,muestra,dn1 dn2 dn3 dn4,-,meta3,0,0,48,
+2026-11-07,20:17:23,muestra,dn1 dn2 dn3 dn4,-,meta3,0,0,23,
+2026-11-07,20:17:29,muestra,dn1 dn2 dn3 dn4,-,meta3,0,0,0,
+2026-11-07,20:17:35,muestra,dn1 dn2 dn3 dn4,-,meta3,0,0,0,
+2026-11-07,20:17:41,muestra,dn1 dn2 dn3 dn4,-,meta3,0,0,0,
+2026-11-07,20:17:47,muestra,dn1 dn2 dn3 dn4,-,meta3,0,0,0,

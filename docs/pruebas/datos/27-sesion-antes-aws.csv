@@ -1,0 +1,4 @@
+fecha,hora,tipo,vivos,caidos,lider,menos_de_3,copy,delete,detalle
+2026-11-07,20:36:11,evento,,,,,,,"inicio: sesion-antes en aws (DFS_W=2, DFS_REREPLICATE_AFTER_S=60, DFS_LEADER_GRACE_S=300)"
+2026-11-07,20:36:13,muestra,dn1 dn2 dn3 dn4,-,meta1,0,0,0,
+2026-11-07,20:36:19,muestra,dn1 dn2 dn3 dn4,-,meta1,0,0,0,

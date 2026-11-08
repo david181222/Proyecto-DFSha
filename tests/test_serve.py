@@ -142,3 +142,29 @@ def test_main_modules_read_nothing_on_import(monkeypatch):
     for name in ("metaserver.__main__", "datanode.__main__"):
         module = importlib.import_module(name)
         assert callable(module.main)
+
+
+# El arranque de serve.run en el mismo orden: primero configure_logging, después uvicorn carga su
+# configuración de logs (Config.load), y al final un mensaje INFO del líder.
+INFO_LOG = """
+import logging
+
+import uvicorn
+from fastapi import FastAPI
+
+from dfs_common.serve import configure_logging
+
+configure_logging()
+configure_logging()  # dos veces: el mensaje no debe salir repetido
+uvicorn.Config(FastAPI()).load()
+logging.getLogger("dfsha").info("lider: meta1 gano la eleccion")
+"""
+
+
+def test_info_messages_of_dfsha_reach_stderr_once_for_docker_logs(tmp_path):
+    """Sin configure_logging, Python solo mostraba WARNING y más graves (tarea 27)."""
+    script = tmp_path / "info_log.py"
+    script.write_text(INFO_LOG, encoding="utf-8")
+    result = subprocess.run([sys.executable, str(script)], capture_output=True, timeout=30)
+    assert result.returncode == 0, result.stderr.decode()
+    assert result.stderr.count(b"INFO dfsha: lider: meta1 gano la eleccion") == 1

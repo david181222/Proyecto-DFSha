@@ -1,0 +1,26 @@
+fecha,hora,tipo,vivos,caidos,lider,menos_de_3,copy,delete,detalle
+2026-11-07,17:42:41,evento,,,,,,,"inicio: consistencia en local (DFS_W=2, DFS_REREPLICATE_AFTER_S=60, DFS_LEADER_GRACE_S=60)"
+2026-11-07,17:42:44,muestra,dn1 dn2 dn3 dn4,-,meta1,0,0,0,
+2026-11-07,17:42:50,muestra,dn1 dn2 dn3 dn4,-,meta1,0,0,0,
+2026-11-07,17:42:58,muestra,dn2 dn3 dn4,dn1,meta1,96,0,0,
+2026-11-07,17:43:08,muestra,dn1 dn2 dn3 dn4,-,meta1,2,2,0,
+2026-11-07,17:43:21,evento,,,,,,,"iptables: cortado el puerto 9444 de dn4 (lo que le reenvían el primario y las órdenes copy)"
+2026-11-07,17:43:21,evento,,,,,,,"empieza el put de la versión 2"
+2026-11-07,17:43:24,muestra,dn1 dn2 dn3 dn4,-,meta1,0,0,0,
+2026-11-07,17:43:39,muestra,dn1 dn2 dn3,dn4,meta1,65,1,0,
+2026-11-07,17:43:56,muestra,dn1 dn2 dn3 dn4,-,meta1,1,0,0,
+2026-11-07,17:44:02,evento,,,,,,,"termina el put de la versión 2 (código 0)"
+2026-11-07,17:44:04,muestra,dn1 dn2 dn3 dn4,-,meta1,2,1,0,
+2026-11-07,17:44:08,evento,,,,,,,"lectura que terminó a las 17:43:32: versión 1"
+2026-11-07,17:44:09,evento,,,,,,,"lectura que terminó a las 17:43:54: versión 1"
+2026-11-07,17:44:09,evento,,,,,,,"lectura que terminó a las 17:43:57: versión 1"
+2026-11-07,17:44:09,evento,,,,,,,"lectura que terminó a las 17:44:00: versión 1"
+2026-11-07,17:44:09,evento,,,,,,,"lectura que terminó a las 17:44:02: versión 2"
+2026-11-07,17:44:10,evento,,,,,,,"lectura que terminó a las 17:44:05: versión 2 (después del put)"
+2026-11-07,17:44:10,evento,,,,,,,"lectura que terminó a las 17:44:08: versión 2 (después del put)"
+2026-11-07,17:44:11,muestra,dn1 dn2 dn3 dn4,-,meta1,1,1,0,
+2026-11-07,17:44:14,evento,,,,,,,"6 de 8 bloques de la versión 2 no tienen copia viva en dn4"
+2026-11-07,17:44:17,evento,,,,,,,"iptables: regla quitada en dn4"
+2026-11-07,17:44:18,muestra,dn1 dn2 dn3 dn4,-,meta1,0,0,0,
+2026-11-07,17:44:25,muestra,dn1 dn2 dn3 dn4,-,meta1,0,0,0,
+2026-11-07,17:44:31,muestra,dn1 dn2 dn3 dn4,-,meta1,0,0,0,
