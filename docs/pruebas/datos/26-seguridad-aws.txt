@@ -1,0 +1,130 @@
+# Tarea 26 · Seguridad en AWS (clúster de Edwin, us-east-1), 2026-11-08 UTC
+# Salida tal cual de los comandos de docs/pruebas/26-seguridad.md, sección 4. Hora UTC de cada línea.
+# Commit 7eedf22, DFS_W=2, tiempos de la columna "Pruebas" de la Tabla 19.
+# Ningún JWT, pase ni contraseña aparece aquí: quedaron dentro del contenedor client y se borraron al final.
+# Las IP son privadas (VPC 172.31.0.0/16); las públicas de las VMs y la de quien trabaja no se muestran.
+
+14:31:32  --  commit 7eedf22; las llamadas con curl van a meta1 (172.31.33.107), que en la VM1 comparte IP con dn1
+14:31:32  --  1. Acceso autorizado: ana baja /demo/secreto.txt (10,7 MiB, la marca SECRETO-DFSHA en cada línea) y compara el SHA-256
+14:31:32  ana  líneas con la marca: 400000
+14:31:33  ana  /demo/secreto.txt: versión 1, 10.7 MiB en 2 bloques, 0.21 s, 50.0 MiB/s -> s.txt
+14:31:33  ana  4b7e4697c8561b8ae2bf967efc1fa781db5efc81c2daa1603097be1389cf111a  secreto.txt
+14:31:33  ana  4b7e4697c8561b8ae2bf967efc1fa781db5efc81c2daa1603097be1389cf111a  s.txt
+14:31:33  --  2. Sin token, con un token inventado y sin sesión: 401
+14:31:33  curl  {"error":"E_AUTH","message":"falta el JWT en Authorization: Bearer","retryable":false}  (HTTP 401)
+14:31:33  curl  {"error":"E_AUTH","message":"JWT ausente, inválido o vencido","retryable":false}  (HTTP 401)
+14:31:34  sin-sesion  error E_AUTH: Tu sesión no existe o venció: corre dfs login
+14:31:35  --  3. Ruta de otro usuario: bruno no ve /demo de ana; para él, /demo/secreto.txt es una ruta de su propio espacio
+14:31:35  ana  -    536870912    1  2026-11-08 14:20  a512.bin
+14:31:35  ana  -     67108864    1  2026-11-08 14:26  b64.bin
+14:31:35  ana  -           10    4  2026-11-08 14:23  conc.txt
+14:31:35  ana  -     16777225    2  2026-11-08 14:22  rf3.txt
+14:31:36  ana  -     11200000    1  2026-11-08 14:19  secreto.txt
+14:31:37  bruno  (dfs ls / terminó; sin entradas si no imprimió nada)
+14:31:37  bruno  error E_NOT_FOUND: /demo/secreto.txt no existe
+14:31:37  --  4. Rutas /admin sin rol de administrador: 403
+14:31:38  bruno  error E_FORBIDDEN: esta ruta exige rol de administrador
+14:31:39  bruno  error E_FORBIDDEN: esta ruta exige rol de administrador
+14:31:40  --  5. lock_id de otro usuario: ana toma el lock de /demo/secreto.txt; bruno intenta renovarlo y soltarlo
+14:31:40  ana  {"lock_id":"5d04a1bb6cddca2f","lease_s":30}
+14:31:41  curl  {"error":"E_FORBIDDEN","message":"el lock 5d04a1bb6cddca2f es de otro usuario","retryable":false}  (HTTP 403)
+14:31:41  curl  {"error":"E_FORBIDDEN","message":"el lock 5d04a1bb6cddca2f es de otro usuario","retryable":false}  (HTTP 403)
+14:31:41  curl  {"ok":true}  (HTTP 200, ana lo suelta)
+14:31:41  --  6. Pases de bloque: bruno sube /b.txt y pide su manifiesto (trae el pase de lectura de su bloque)
+14:31:42  bruno  /b.txt: versión 1, 0.0 MiB en 1 bloques (1 enviados, 0 ya estaban), 0.17 s, 0.0 MiB/s
+14:31:42  info  bloque de bruno: ae360a4cd18cfc0e... en 172.31.8.247:9443
+14:31:42  info  bloque 0 de ana: 1162c6191984b8b9... en 172.31.2.194:9443
+14:31:42  --  6a. Con su propio pase, bruno lee su bloque: 200
+14:31:42  bruno  (HTTP 200) contenido: archivo de bruno
+14:31:42  --  6b. Sin pase: 401
+14:31:43  bruno  {"error":"E_AUTH","message":"falta el pase del bloque","retryable":false}  (HTTP 401)
+14:31:43  --  6c. El pase de bruno contra el bloque de ana: 403 (pase de otro bloque)
+14:31:43  bruno  {"error":"E_FORBIDDEN","message":"el pase es de otro bloque","retryable":false}  (HTTP 403)
+14:31:43  --  6d. bruno altera su pase (user=ana y el hash del bloque de ana) y conserva la firma: 403 (firma inválida)
+14:31:43  bruno  {"error":"E_FORBIDDEN","message":"pase con firma inválida","retryable":false}  (HTTP 403)
+14:31:43  --  6e. Un pase de lectura usado para escribir (PUT): 403 (pase de otra operación)
+14:31:43  bruno  {"error":"E_FORBIDDEN","message":"el pase es de otra operación","retryable":false}  (HTTP 403)
+14:31:43  --  7. TLS: la API pública negocia TLS 1.3 y rechaza TLS 1.2
+14:31:43  curl  * SSL connection using TLSv1.3 / TLS_AES_256_GCM_SHA384 / X25519MLKEM768 / id-ecPublicKey
+14:31:43  curl  *  subjectAltName: host "172.31.33.107" matched cert's IP address!
+14:31:43  curl  *  SSL certificate verify ok.
+14:31:44  curl  TLS 1.2 contra 8443: curl salió con código 35
+14:31:44  curl  TLS 1.2 contra 9443: curl salió con código 35
+14:31:44  --  8. mTLS: la API interna (8444 y 9444) corta el handshake sin certificado de cliente
+14:31:44  curl  sin certificado de cliente contra 8444: curl salió con código 56
+14:31:44  curl  sin certificado de cliente contra 9444: curl salió con código 56
+
+14:32:52  --  8b. Con el certificado de dn1, el handshake con la API interna de meta1 pasa y responde JSON (400: falta el cuerpo)
+14:32:59  dn1  {"error":"E_BAD_REQUEST","message":"body: Field required","retryable":false}  (HTTP 400)
+14:32:59  --  9. tcpdump en la VM5 (8443 y 9443: el cliente) y en la VM1 (8444, 9443 y 9444: meta1 y dn1) durante un put y un get de un archivo nuevo con la marca
+14:33:05  ana  secreto3.txt: 25900000 bytes, 700000 líneas con la marca
+14:33:17  ana  /demo/secreto3.txt: versión 1, 24.7 MiB en 4 bloques (4 enviados, 0 ya estaban), 0.80 s, 30.8 MiB/s
+14:33:18  ana  /demo/secreto3.txt  versión 1  25900000 bytes  bloques de 8388608 bytes  sha256 a7ac6f4bc642
+14:33:18  ana  índice  hash              tamaño  nodos
+14:33:18  ana       0  b44c6e51a7d6     8388608  dn3, dn4, dn1
+14:33:18  ana       1  a0921bcfebe3     8388608  dn4, dn1, dn2
+14:33:18  ana       2  6ebace9ddb72     8388608  dn1, dn2, dn3
+14:33:18  ana       3  baf3c9d84f0e      734176  dn2, dn3, dn4
+14:33:19  ana  /demo/secreto3.txt: versión 1, 24.7 MiB en 4 bloques, 0.45 s, 54.4 MiB/s -> s3.txt
+14:33:19  ana  a7ac6f4bc6426505cf4cdab6208524b36e4e31dc2a7925d3a3bd93d1c353476a  secreto3.txt
+14:33:19  ana  a7ac6f4bc6426505cf4cdab6208524b36e4e31dc2a7925d3a3bd93d1c353476a  s3.txt
+14:33:39  tcpdump-vm5  5330 packets captured
+14:33:40  tcpdump-vm5  5330 packets received by filter
+14:33:40  tcpdump-vm5  0 packets dropped by kernel
+14:33:40  tcpdump-vm5  5330 paquetes; 51963561 bytes de carga TCP
+14:33:40  tcpdump-vm5  con la marca SECRETO-DFSHA en claro: 0
+14:33:40  tcpdump-vm5    paquetes del puerto 8443: 163
+14:33:40  tcpdump-vm5    paquetes del puerto 9443: 5167
+14:33:40  tcpdump-vm1  7205 packets captured
+14:33:40  tcpdump-vm1  7205 packets received by filter
+14:33:40  tcpdump-vm1  0 packets dropped by kernel
+14:33:40  tcpdump-vm1  7205 paquetes; 67365351 bytes de carga TCP
+14:33:40  tcpdump-vm1  con la marca SECRETO-DFSHA en claro: 0
+14:33:40  tcpdump-vm1    paquetes del puerto 8444: 247
+14:33:40  tcpdump-vm1    paquetes del puerto 9443: 4442
+14:33:40  tcpdump-vm1    paquetes del puerto 9444: 2516
+
+14:34:05  --  10. Disco: el bloque 0 de /demo/secreto.txt en claro en el cliente y como lo guardan los DataNodes que lo tienen
+14:34:11  client  en el cliente: 8388608 bytes, sha256 1162c6191984b8b9..., 299593 líneas con la marca
+14:34:11  client  0000000   S   E   C   R   E   T   O   -   D   F   S   H   A       l   i
+14:34:11  client  0000016   n   e   a       0   0   0   0   0   0   0  \n   S   E   C   R
+14:34:11  client  0000032   E   T   O   -   D   F   S   H   A       l   i   n   e   a    
+14:34:17  vm1  bloque 0 de /demo/secreto.txt: /srv/dfsha/data/ana/1162c6191984b8b9... 8388636 bytes (8388608 + 12 de nonce + 16 de tag), sha256 del archivo 736e11c9bf94442e..., líneas con la marca: 0
+14:34:17  vm1  0000000 352   } 231 211 254   x 207 365 260   B 364 345 276 313   E   v
+14:34:17  vm1  0000016 301 016 324 304   $ 024   #   O   & 361   k 177   I 216   . 215
+14:34:17  vm1  0000032 316 252   v   j 321 233   D 244 352   F 231   i   a   6 340 304
+14:34:19  vm1  81 bloques de ana; archivos de /srv/dfsha/data con la marca en claro: 0
+14:34:26  vm2  bloque 0 de /demo/secreto.txt: /srv/dfsha/data/ana/1162c6191984b8b9... 8388636 bytes (8388608 + 12 de nonce + 16 de tag), sha256 del archivo c5d1a00fe3ca7aa4..., líneas con la marca: 0
+14:34:26  vm2  0000000 330 302   i   <   G 301   l 352 324   S 363   ~ 253 202 367   ^
+14:34:26  vm2  0000016 207 237 341 021   _ 300 342 336  \0 316  \v 267 001 344   ,   `
+14:34:26  vm2  0000032 314 373   > 253   x 232 305   j 260  \b 024 210   s 200 205 235
+14:34:27  vm2  81 bloques de ana; archivos de /srv/dfsha/data con la marca en claro: 0
+14:34:33  vm3  bloque 0 de /demo/secreto.txt: /srv/dfsha/data/ana/1162c6191984b8b9... 8388636 bytes (8388608 + 12 de nonce + 16 de tag), sha256 del archivo 02f4c99da6841842..., líneas con la marca: 0
+14:34:33  vm3  0000000 350 265 261   R   s 017 317 330 264 005 327   3 263   w   d 034
+14:34:33  vm3  0000016   t 361   .   O 302 325 021   ~   \ 323   y 241 004   9   b  \f
+14:34:33  vm3  0000032 345 024  \f 200 355  \0 033 334 326 220 242 362 301   # 221 246
+14:34:34  vm3  81 bloques de ana; archivos de /srv/dfsha/data con la marca en claro: 0
+14:34:40  vm4  3 bloques de ana; archivos de /srv/dfsha/data con la marca en claro: 0
+14:34:45  vm1  la clave AES de dn1 no está en el disco de datos: /run/secrets/node_key, 32 bytes
+14:34:45  --  11. Discos EBS de las 5 VMs, cifrados (DA-13): tamaño y Encrypted, sin IDs
+14:34:48  aws    vm1  20 GiB  gp3  cifrado=True
+14:34:48  aws    vm1  4 GiB  gp3  cifrado=True
+14:34:48  aws    vm2  20 GiB  gp3  cifrado=True
+14:34:48  aws    vm2  4 GiB  gp3  cifrado=True
+14:34:48  aws    vm3  20 GiB  gp3  cifrado=True
+14:34:48  aws    vm3  4 GiB  gp3  cifrado=True
+14:34:48  aws    vm4  20 GiB  gp3  cifrado=True
+14:34:48  aws    vm5  20 GiB  gp3  cifrado=True
+14:34:48  --  12. Contraseñas en etcd con Argon2id (solo los parámetros; sin la sal ni el hash)
+14:34:53  etcd1  {"password_hash":"$argon2id$v=19$m=65536,t=3,p=4$<sal y hash omitidos>","is_admin":false}
+14:34:53  --  13. Red: desde el PC, a la IP pública de cada VM (3 s por puerto; las IP no se muestran)
+14:35:13  pc  vm1  22:abierto 2379:cerrado 2380:cerrado 8443:cerrado 8444:cerrado 9443:cerrado 9444:cerrado
+14:35:31  pc  vm2  22:abierto 2379:cerrado 2380:cerrado 8443:cerrado 8444:cerrado 9443:cerrado 9444:cerrado
+14:35:49  pc  vm3  22:abierto 2379:cerrado 2380:cerrado 8443:cerrado 8444:cerrado 9443:cerrado 9444:cerrado
+14:36:08  pc  vm4  22:abierto 2379:cerrado 2380:cerrado 8443:cerrado 8444:cerrado 9443:cerrado 9444:cerrado
+14:36:26  pc  vm5  22:abierto 2379:cerrado 2380:cerrado 8443:cerrado 8444:cerrado 9443:cerrado 9444:cerrado
+14:36:28  aws    regla de entrada: tcp 2379-2380 desde el mismo grupo
+14:36:28  aws    regla de entrada: tcp 22-22 desde <IP de quien trabaja>/32
+14:36:28  aws    regla de entrada: tcp 9443-9444 desde el mismo grupo
+14:36:28  aws    regla de entrada: tcp 8443-8444 desde el mismo grupo
+14:36:28  --  fin

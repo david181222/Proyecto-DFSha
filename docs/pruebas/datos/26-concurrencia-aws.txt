@@ -1,0 +1,70 @@
+# Tarea 26 · Concurrencia en AWS (clúster de Edwin, us-east-1), 2026-11-08 UTC
+# Salida tal cual de los comandos de docs/pruebas/26-concurrencia.md, sección 4, en la VM5 (contenedor client).
+# Commit 7eedf22, DFS_W=2, DFS_LOCK_LEASE_S=30; tiempos de la columna "Pruebas" de la Tabla 19 (scripts/pruebas/pruebas.env).
+# A y B: dos dfs shell del usuario ana. R: lecturas de control. Hora UTC de cada línea.
+
+14:22:46  --  commit 7eedf22; DFS_W=2 DFS_LOCK_LEASE_S=30 DFS_LOCK_RENEW_S=10
+14:22:46  --  CASO 1: con espera. A abre /demo/conc.txt en w y tarda unos 12 s en cerrar; B pide el lock a los 3 s con --wait 30
+14:22:46  A  Shell de DFSha. help lista los comandos; quit sale sin publicar lo que siga abierto.
+14:22:46  A  dfs> fd 3: /demo/conc.txt en modo w, versión 0, 0 bytes
+14:22:46  A  dfs> 13 bytes escritos
+14:22:49  --  B pide el lock (open /demo/conc.txt w --wait 30)
+14:22:49  B  Shell de DFSha. help lista los comandos; quit sale sin publicar lo que siga abierto.
+14:22:58  A  dfs> fd 3 cerrado: /demo/conc.txt versión 1
+14:22:58  B  dfs> fd 3: /demo/conc.txt en modo w, versión 1, 0 bytes
+14:22:58  B  dfs> 13 bytes escritos
+14:22:58  B  dfs> fd 3 cerrado: /demo/conc.txt versión 2
+14:22:59  R  versión:     2
+14:23:00  R  contenido: escrito-por-B
+14:23:00  --  CASO 2: espera 0. A abre /demo/conc.txt en rw y lo tiene abierto unos 12 s; B pide el lock con --wait 0
+14:23:01  A  Shell de DFSha. help lista los comandos; quit sale sin publicar lo que siga abierto.
+14:23:01  A  dfs> fd 3: /demo/conc.txt en modo rw, versión 2, 13 bytes
+14:23:01  A  dfs> 11 bytes escritos
+14:23:03  --  B: open /demo/conc.txt w --wait 0, y después dfs put --wait 0
+14:23:04  B  Shell de DFSha. help lista los comandos; quit sale sin publicar lo que siga abierto.
+14:23:04  B  dfs> error E_LOCKED: otro cliente tiene el lock de /demo/conc.txt
+14:23:04  B  dfs> no hay archivos abiertos
+14:23:05  B  error E_LOCKED: El archivo está bloqueado por otro cliente; intenta más tarde
+14:23:06  B  (código de salida de dfs put: 1)
+14:23:12  A  dfs> fd 3 cerrado: /demo/conc.txt versión 3
+14:23:13  R  contenido: cambio-de-A-B
+14:23:13  --  CASO 3: commit tardío. A abre /demo/conc.txt en w --no-renew (lease de 30 s sin renovar) y cierra a los 48 s; B pide el lock a los 36 s
+14:23:14  A  Shell de DFSha. help lista los comandos; quit sale sin publicar lo que siga abierto.
+14:23:14  A  dfs> fd 3: /demo/conc.txt en modo w, versión 3, 0 bytes
+14:23:14  A  dfs> 7 bytes escritos
+14:23:49  --  B pide el lock (open /demo/conc.txt w --wait 30)
+14:23:50  B  Shell de DFSha. help lista los comandos; quit sale sin publicar lo que siga abierto.
+14:23:50  B  dfs> fd 3: /demo/conc.txt en modo w, versión 3, 0 bytes
+14:23:50  B  dfs> 10 bytes escritos
+14:23:50  B  dfs> fd 3 cerrado: /demo/conc.txt versión 4
+14:24:01  A  dfs> fd 3: /demo/conc.txt modo w versión 3 7 bytes, 1 bloques sin publicar
+14:24:01  A  dfs> error E_LOCK_LOST: perdiste el lock o alguien publicó otra versión; tus cambios no se publicaron
+14:24:03  R  versión:     4
+14:24:04  R  contenido: a-tiempo-B
+14:24:04  --  fin
+
+# Log de acceso de meta1 (uvicorn) entre 14:22:45 y 14:24:06, en orden: las rutas /locks y /uploads con su código HTTP.
+# Cada línea se escribe cuando la petición termina: el POST /locks de B que esperó en la fila aparece a las 14:22:58.
+14:22:46  meta1  INFO:     172.31.37.93:51358 - "POST /api/v1/locks HTTP/1.1" 200 OK
+14:22:56  meta1  INFO:     172.31.37.93:41124 - "PUT /api/v1/locks/5d04a1bb6cddbd49 HTTP/1.1" 200 OK
+14:22:58  meta1  INFO:     172.31.37.93:41124 - "POST /api/v1/uploads HTTP/1.1" 200 OK
+14:22:58  meta1  INFO:     172.31.37.93:41124 - "POST /api/v1/uploads/b46cbf89-91a6-45a3-8e15-f0ec85bc79c3/commit HTTP/1.1" 200 OK
+14:22:58  meta1  INFO:     172.31.37.93:41124 - "DELETE /api/v1/locks/5d04a1bb6cddbd49 HTTP/1.1" 200 OK
+14:22:58  meta1  INFO:     172.31.37.93:41084 - "POST /api/v1/locks HTTP/1.1" 200 OK
+14:22:58  meta1  INFO:     172.31.37.93:41084 - "POST /api/v1/uploads HTTP/1.1" 200 OK
+14:22:58  meta1  INFO:     172.31.37.93:41084 - "POST /api/v1/uploads/0af42f54-f73a-4c33-a8f1-e57c10f6faff/commit HTTP/1.1" 200 OK
+14:22:58  meta1  INFO:     172.31.37.93:41084 - "DELETE /api/v1/locks/5d04a1bb6cddbd57 HTTP/1.1" 200 OK
+14:23:01  meta1  INFO:     172.31.37.93:53176 - "POST /api/v1/locks HTTP/1.1" 200 OK
+14:23:04  meta1  INFO:     172.31.37.93:53186 - "POST /api/v1/locks HTTP/1.1" 423 Locked
+14:23:05  meta1  INFO:     172.31.37.93:53190 - "POST /api/v1/locks HTTP/1.1" 423 Locked
+14:23:11  meta1  INFO:     172.31.37.93:34002 - "PUT /api/v1/locks/5d04a1bb6cddbdb5 HTTP/1.1" 200 OK
+14:23:12  meta1  INFO:     172.31.37.93:34002 - "POST /api/v1/uploads HTTP/1.1" 200 OK
+14:23:12  meta1  INFO:     172.31.37.93:34002 - "POST /api/v1/uploads/65c6e03d-058e-4125-808d-36068108680c/commit HTTP/1.1" 200 OK
+14:23:12  meta1  INFO:     172.31.37.93:34002 - "DELETE /api/v1/locks/5d04a1bb6cddbdb5 HTTP/1.1" 200 OK
+14:23:14  meta1  INFO:     172.31.37.93:34030 - "POST /api/v1/locks HTTP/1.1" 200 OK
+14:23:50  meta1  INFO:     172.31.37.93:48636 - "POST /api/v1/locks HTTP/1.1" 200 OK
+14:23:50  meta1  INFO:     172.31.37.93:48636 - "POST /api/v1/uploads HTTP/1.1" 200 OK
+14:23:50  meta1  INFO:     172.31.37.93:48636 - "POST /api/v1/uploads/10525824-73ac-4365-9a15-84e484e33560/commit HTTP/1.1" 200 OK
+14:23:50  meta1  INFO:     172.31.37.93:48636 - "DELETE /api/v1/locks/5d04a1bb6cddbeb6 HTTP/1.1" 200 OK
+14:24:01  meta1  INFO:     172.31.37.93:41340 - "POST /api/v1/uploads HTTP/1.1" 409 Conflict
+14:24:01  meta1  INFO:     172.31.37.93:41340 - "DELETE /api/v1/locks/5d04a1bb6cddbe1a HTTP/1.1" 200 OK

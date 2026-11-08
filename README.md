@@ -4,6 +4,25 @@ Sistema de archivos distribuido con alta disponibilidad, rendimiento y seguridad
 
 Equipo: Edwin David Vélez Rodríguez, José Elías Díaz Marín y Santiago Andrés Martínez Lora ([contribuciones](#equipo-y-contribuciones)).
 
+## Contenido
+
+1. [Qué es](#qué-es)
+2. [Arquitectura](#arquitectura)
+   - [Semántica de los archivos (RF3)](#semántica-de-los-archivos-rf3)
+   - [Garantías](#garantías)
+   - [Despliegue](#despliegue)
+3. [Estructura del repositorio](#estructura-del-repositorio)
+4. [Instalación](#instalación)
+5. [Pruebas automáticas](#pruebas-automáticas)
+6. [Correr en local](#correr-en-local)
+7. [Despliegue en AWS](#despliegue-en-aws)
+8. [Evidencias](#evidencias)
+9. [Limitaciones conocidas](#limitaciones-conocidas)
+10. [Equipo y contribuciones](#equipo-y-contribuciones)
+11. [Contribuir](#contribuir)
+
+Documentos de diseño: [decisiones de arquitectura](docs/decisiones.md) · [contrato de las APIs](docs/contratos.md) · [evidencias de las pruebas](docs/pruebas/README.md).
+
 ## Qué es
 
 DFSha guarda archivos grandes repartidos en varios nodos. Cada archivo se parte en bloques de 8 MiB, y cada bloque queda en 3 DataNodes de al menos 2 zonas de disponibilidad. Los metadatos (nombres, versiones, dónde está cada bloque, usuarios y locks) viven en un clúster de etcd de 3 nodos, detrás de 3 MetaServers sin estado. El cliente `dfs` habla con los MetaServers para todo lo que es control y envía y recibe los bloques directamente de los DataNodes.
@@ -439,7 +458,10 @@ El índice de `docs/pruebas/README.md` dice qué corrida tiene cada una, en loca
 - **Escrituras parciales caras:** cambiar un byte reescribe su bloque de 8 MiB (DA-03). En `rw` y `a`, los bloques modificados quedan en la memoria del cliente hasta el `close`.
 - **Sin truncado ni huecos** (DA-14): `write` no acepta offsets mayores que el tamaño actual, y `a` y `rw` no pueden achicar el archivo. En `a`, cada `write` va al final, sin importar el offset.
 - **Un lector que tarde más de 10 minutos** debe reabrir el archivo: la versión reemplazada se conserva `DFS_RETENTION_S` (DA-14).
-- **Con solo 2 DataNodes vivos** (la zona b caída), un secundario lento hace fallar el `put`: el cliente pide otros destinos sin el primario y no queda a dónde ir. El `put` falla sin publicar nada (G1 se mantiene) y se puede repetir. Pasó 2 de 4 veces en el ensayo local y ninguna en AWS (`docs/pruebas/27-fallos-zona-b.md`).
+- **Con solo 2 DataNodes vivos** (la zona b caída), un secundario lento hace fallar el `put`. Pasó 2 de 4 veces en el ensayo local y ninguna en AWS (`docs/pruebas/27-fallos-zona-b.md`).
+  - **Causa:** si el secundario no responde en `DFS_PRIMARY_WAIT_S`, el primario responde 422 `E_REPLICAS`, y el cliente pide otro destino (`realloc`) excluyendo al primario, aunque el que falló fue el secundario (`src/dfs_client/transfer.py:168`). Con 2 nodos vivos queda uno solo, que no cubre 2 zonas, y el MetaServer responde 503 `E_UNAVAILABLE`.
+  - **Efecto:** el `put` no publica nada (G1 se mantiene) y se puede repetir.
+  - **Arreglo propuesto, como trabajo futuro:** cuando el `realloc` sin el primario no tiene otros destinos, reintentar con los mismos dos nodos. Subir `DFS_W` a 3 no lo arregla: con 2 nodos vivos, W=3 no deja escribir nunca (contrato, sección 2).
 - **La re-réplica espera:** 60 s después de que un DataNode cae, y 5 minutos después de un cambio de líder (DA-12). Si caen a la vez el líder y un DataNode, la tercera copia tarda más; la lectura y la escritura siguen.
 - **Confianza entre servidores:** etcd y las APIs internas aceptan cualquier certificado de la CA propia. Un DataNode comprometido podría hablar con etcd y, como tiene la clave de los pases, firmarlos; la IP de origen solo protege la API interna del MetaServer (contrato, sección 8).
 - **El DataNode ve los bloques en claro** mientras los procesa: el cifrado es en reposo, con una clave por nodo (DA-09).
