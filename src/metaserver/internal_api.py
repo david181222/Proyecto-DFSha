@@ -7,7 +7,7 @@ Como todos los nodos tienen un certificado de la misma CA, cada llamada se ata a
 nodo por la IP de origen de la conexión (docs/contratos.md, sección 3): si no es la del
 nodo, 403 E_FORBIDDEN.
 
-Implementadas: POST /blocks/confirm (tarea 12), y register y heartbeat (tarea 13).
+Rutas: register, heartbeat y POST /blocks/confirm.
 
 Al arrancar, el lifespan abre sus propios recursos, entre ellos su cliente de etcd
 (metaserver.deps). Las tareas de fondo del proceso van en el lifespan de la app pública.

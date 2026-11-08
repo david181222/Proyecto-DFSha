@@ -4,7 +4,9 @@ Sistemas Distribuidos 2026-2 · UPB · Opción 1: cliente/servidor con servicio 
 
 Equipo: Edwin David Vélez Rodríguez (000553569) · José Elías Díaz Marín (554108) · Santiago Andrés Martínez Lora (000554113). Medellín, noviembre de 2026.
 
-> Copia en Markdown de `docs/DFSha_FaseII_Matriz_y_Decisiones_v5.pdf`, para que Claude Code la lea. Si cambia el Word, se regenera esta copia.
+> Versión en Markdown del documento de decisiones; la versión oficial es el PDF, [`DFSha_FaseII_Matriz_y_Decisiones_v5.pdf`](DFSha_FaseII_Matriz_y_Decisiones_v5.pdf). Las decisiones no se editan aquí.
+>
+> **DA-07 quedó cerrada con Python 3.12** al empezar la implementación. Donde este documento dice "por confirmar" (Tablas 2 y 23, DA-07), el lenguaje ya está confirmado.
 
 ## 1. Propósito y criterios
 

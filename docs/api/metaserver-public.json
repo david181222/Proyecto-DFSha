@@ -3,7 +3,7 @@
   "info": {
     "title": "DFSha · MetaServer público",
     "description": "API pública del MetaServer (puerto 8443, HTTPS). Contrato legible en docs/contratos.md.",
-    "version": "0.1.0"
+    "version": "1.0.0"
   },
   "paths": {
     "/api/v1/auth/login": {

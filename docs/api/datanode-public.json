@@ -3,7 +3,7 @@
   "info": {
     "title": "DFSha · DataNode público",
     "description": "API pública del DataNode (puerto 9443, HTTPS). Contrato legible en docs/contratos.md.",
-    "version": "0.1.0"
+    "version": "1.0.0"
   },
   "paths": {
     "/api/v1/blocks/{hash}": {
@@ -220,6 +220,9 @@
             "description": "`E_AUTH`: JWT ausente, inválido o vencido, o pase ausente o vencido.",
             "content": {
               "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
                 "examples": {
                   "E_AUTH": {
                     "value": {
@@ -229,11 +232,6 @@
                     }
                   }
                 }
-              },
-              "application/octet-stream": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
               }
             }
           },
@@ -241,6 +239,9 @@
             "description": "`E_FORBIDDEN`: pase mal formado, con firma inválida, de otro hash o de otra operación; ruta /admin sin rol admin; lock_id o upload_id de otro usuario; o un nodo que usa la API interna con un node_id ajeno.",
             "content": {
               "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
                 "examples": {
                   "E_FORBIDDEN": {
                     "value": {
@@ -250,11 +251,6 @@
                     }
                   }
                 }
-              },
-              "application/octet-stream": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
               }
             }
           },
@@ -262,6 +258,9 @@
             "description": "`E_NOT_FOUND`: ruta, bloque, versión o lease inexistente.",
             "content": {
               "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
                 "examples": {
                   "E_NOT_FOUND": {
                     "value": {
@@ -271,11 +270,6 @@
                     }
                   }
                 }
-              },
-              "application/octet-stream": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
               }
             }
           },
@@ -283,6 +277,9 @@
             "description": "`E_CHECKSUM`: el contenido no coincide con el hash, o la copia guardada está dañada.",
             "content": {
               "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
                 "examples": {
                   "E_CHECKSUM": {
                     "value": {
@@ -291,11 +288,6 @@
                       "retryable": true
                     }
                   }
-                }
-              },
-              "application/octet-stream": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }

@@ -4,8 +4,8 @@ La usa el cliente para enviar y recibir bloques. Cada petición lleva el pase de
 bloque en Authorization: Bearer <pase>, firmado por el MetaServer (DA-10).
 El cuerpo de los bloques es binario (application/octet-stream, DA-06).
 
-Implementadas: health y GET /blocks/{hash} (tarea 10), y PUT /blocks/{hash}: guardar,
-reenviar a los secundarios y confirmar al MetaServer (tarea 14, datanode.primary).
+Rutas: health, GET /blocks/{hash} y PUT /blocks/{hash}, que guarda, reenvía a los secundarios
+y confirma al MetaServer (datanode.primary).
 
 Al arrancar, el lifespan abre el almacén, lee la clave de los pases y crea los clientes HTTP
 hacia los secundarios y los MetaServers (datanode.deps). Después arranca las tareas de fondo del

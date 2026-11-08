@@ -27,7 +27,7 @@ Detener dn4 en medio de un `get` y en medio de un `put`, y comprobar que:
 | DA-16 | normales, salvo `DFS_LEADER_GRACE_S=60` (en el `.env` local) | normales de la Tabla 19 |
 | Cómo se provoca el fallo | `docker compose stop dn4` | `docker compose stop dn` en la VM4 |
 
-Valores que importan aquí: `DFS_HEARTBEAT_S=5`, `DFS_NODE_LEASE_S=15`, `DFS_REREPLICATE_AFTER_S=60`, `DFS_LEADER_SCAN_S=5`, `DFS_W=2`, `DFS_PRIMARY_WAIT_S=10`, `DFS_BLOCK_MIB=8`.
+Valores que importan aquí: `DFS_HEARTBEAT_S=5`, `DFS_NODE_LEASE_S=15`, `DFS_REREPLICATE_AFTER_S=60`, `DFS_LEADER_SCAN_S=10`, `DFS_W=2`, `DFS_PRIMARY_WAIT_S=10`, `DFS_BLOCK_MIB=8`.
 
 ## 4. Pasos
 

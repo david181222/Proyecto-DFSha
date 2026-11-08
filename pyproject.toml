@@ -4,10 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dfsha"
-version = "0.1.0"
-description = "DFSha: sistema de archivos distribuido con alta disponibilidad (Sistemas Distribuidos, UPB 2026-2)"
+version = "1.0.0"
+description = "DFSha: sistema de archivos distribuido con alta disponibilidad, rendimiento y seguridad (Sistemas Distribuidos, UPB 2026-2)"
 readme = "README.md"
 requires-python = ">=3.12"
+authors = [
+    { name = "Edwin David Vélez Rodríguez" },
+    { name = "José Elías Díaz Marín" },
+    { name = "Santiago Andrés Martínez Lora" },
+]
 dependencies = [
     # fastapi y pydantic van con versión exacta porque el OpenAPI de docs/api/
     # cambia entre versiones y tests/test_contratos.py lo compara con el código.

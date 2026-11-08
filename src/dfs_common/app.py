@@ -6,7 +6,7 @@ from fastapi import FastAPI
 
 from dfs_common.errors import install_error_handlers
 
-API_VERSION = "0.1.0"
+API_VERSION = "1.0.0"
 
 # Cuerpo binario de los bloques (DA-06): se documenta a mano porque la ruta lee
 # el cuerpo directamente de la petición, sin un modelo.
@@ -48,6 +48,9 @@ def _adjust_openapi(app: FastAPI, mtls: bool) -> None:
     - Quita el 422 "Validation Error" que FastAPI agrega por su cuenta: en DFSha los
       parámetros inválidos responden 400 E_BAD_REQUEST (errors.handle_validation_error).
     - En las APIs internas declara mTLS, que FastAPI no sabe documentar.
+    - En una ruta que responde binario (GET /blocks/{hash} del DataNode), FastAPI pone el esquema
+      de los errores bajo application/octet-stream, el tipo de la ruta, aunque los errores salen
+      en JSON. Aquí se pasa a application/json, junto a sus ejemplos.
     """
     build_openapi = app.openapi
 
@@ -58,6 +61,11 @@ def _adjust_openapi(app: FastAPI, mtls: bool) -> None:
                 responses = operation.get("responses", {})
                 if responses.get("422", {}).get("description") == "Validation Error":
                     del responses["422"]
+                for response in responses.values():
+                    content = response.get("content", {})
+                    if "application/json" in content and "application/octet-stream" in content:
+                        error_schema = content.pop("application/octet-stream")["schema"]
+                        content["application/json"] = {"schema": error_schema, **content["application/json"]}
                 if mtls:
                     operation["security"] = [{"mTLS": []}]
         components = schema.setdefault("components", {})

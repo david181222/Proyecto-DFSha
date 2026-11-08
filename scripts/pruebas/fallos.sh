@@ -126,8 +126,7 @@ if on_aws; then
   load_vms
   if [[ $case_name == sesion-despues ]]; then # justo después de Start Lab las VMs pueden seguir arrancando
     for _ in $(seq 60); do
-      [[ $(printf '%s
-' "${VM_STATE[@]}" | grep -c running) == 5 ]] && break
+      [[ $(printf '%s\n' "${VM_STATE[@]}" | grep -c running) == 5 ]] && break
       sleep 5
       load_vms
     done
@@ -376,8 +375,7 @@ put_now() { # put_now local remoto etiqueta: put con eventos y su salida en el r
     event "termina $3: error"
     fail "$3: $(error_of "$out") (salida completa en $log_dir/put-$1.txt)"
   fi
-  printf '%s
-' "$out" >"$log_dir/put-$1.txt"
+  printf '%s\n' "$out" >"$log_dir/put-$1.txt"
 }
 get_sha() { # get_sha remoto: lo baja con la sesión reader y deja su SHA-256 en got
   got=""
@@ -796,8 +794,9 @@ meta_started() {
 }
 
 # La espera del líder se mide desde que arrancó su contenedor: el líder gana la elección después,
-# así que esos DFS_LEADER_GRACE_S quedan dentro de su espera. No se usa el log "ganó la elección"
-# porque los mensajes INFO del logger dfsha no llegan a docker logs (Pendientes de la tarea 27).
+# así que esos DFS_LEADER_GRACE_S quedan dentro de su espera. No depende del log "ganó la elección":
+# cuando se escribió esta prueba, los mensajes INFO del logger dfsha no llegaban a docker logs
+# (hoy sí llegan, con configure_logging de src/dfs_common/serve.py).
 case_sesion_despues() {
   [[ -r $state_file ]] || die "no encuentro $state_file: corre antes sesion-antes"
   local remote sha addresses ips now_ips="" leader start_epoch from to wait_s line

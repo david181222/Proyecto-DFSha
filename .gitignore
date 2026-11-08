@@ -50,9 +50,8 @@ htmlcov/
 build/
 dist/
 
-# --- Editores, sistema operativo y configuración local de Claude Code ---
+# --- Editores y sistema operativo ---
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
-.claude/settings.local.json
