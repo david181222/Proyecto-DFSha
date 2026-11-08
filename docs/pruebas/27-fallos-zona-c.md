@@ -27,7 +27,7 @@ Comprobar que, con el líder fuera de la zona c, al detener la zona c completa (
 | DA-16 | normales, salvo `DFS_LEADER_GRACE_S=60` (en el `.env` local) | normales de la Tabla 19 |
 | Cómo se provoca el fallo | `docker compose stop etcd3 meta3 dn3` | `./infra/vm.sh stop vm3` (aws ec2 stop-instances) |
 
-Valores normales que importan aquí: `DFS_HEARTBEAT_S=5`, `DFS_NODE_LEASE_S=15`, `DFS_REREPLICATE_AFTER_S=60`, `DFS_LEADER_SCAN_S=5`, `DFS_W=2`, `DFS_BLOCK_MIB=8`. En AWS, `DFS_LEADER_GRACE_S=300`.
+Valores normales que importan aquí: `DFS_HEARTBEAT_S=5`, `DFS_NODE_LEASE_S=15`, `DFS_REREPLICATE_AFTER_S=60`, `DFS_LEADER_SCAN_S=10`, `DFS_W=2`, `DFS_BLOCK_MIB=8`. En AWS, `DFS_LEADER_GRACE_S=300`.
 
 ## 4. Pasos
 
