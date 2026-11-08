@@ -31,10 +31,10 @@ La parte de red en AWS (puertos del sistema cerrados desde fuera, tráfico entre
 
 | | Ensayo local | AWS |
 |---|---|---|
-| Dónde | `compose.local.yml` en un PC con Windows 11 y Docker Desktop 29.6.1 (Compose 5.3.0); los comandos corren en Git Bash | VM5 (contenedor `client`) y VM1 a VM4 |
-| Commit | rama `limpieza-final` sobre `main` en `b81b930`, antes de su primer commit (los cambios de la rama no tocan el comportamiento) | *(pendiente: ensayo de la fase 4)* |
-| DA-16 | normales, sin `.env` | normales |
-| Fecha | 8 de noviembre de 2026, de 02:06 a 02:12 UTC | — |
+| Dónde | `compose.local.yml` en un PC con Windows 11 y Docker Desktop 29.6.1 (Compose 5.3.0); los comandos corren en Git Bash | 5 VMs t3.small de us-east-1 (Learner Lab de Edwin): `ana` y `bruno` en el contenedor `client` de la VM5; tcpdump en la VM5 y la VM1; el disco, en VM1 a VM4; los puertos, desde el PC |
+| Commit | rama `limpieza-final` sobre `main` en `b81b930`, antes de su primer commit (los cambios de la rama no tocan el comportamiento) | `7eedf22` (`main`), desplegado con `./infra/deploy.sh --times scripts/pruebas/pruebas.env` |
+| DA-16 | normales, sin `.env` | columna "Pruebas" de la Tabla 19 (`pruebas.env`); ninguno de los cuatro tiempos que cambia toca esta prueba. `DFS_W=2` |
+| Fecha | 8 de noviembre de 2026, de 02:06 a 02:12 UTC | 8 de noviembre de 2026, de 14:31 a 14:36 UTC |
 | Herramientas | `dfs`, `curl` y `python` del contenedor `client`; `etcdctl` de etcd1; tcpdump en un contenedor auxiliar (alpine con `tcpdump`) que comparte el espacio de red del contenedor observado, como hace `fallos.sh` con iptables. `compose.local.yml` no cambia | `sudo tcpdump` en la VM (red del host) |
 
 ## 4. Pasos
@@ -92,7 +92,9 @@ $C exec dn1 sh -c 'grep -rl SECRETO-DFSHA-26 /data | wc -l'                   # 
 $C exec etcd1 etcdctl get /users/ana26 --print-value-only                       # $argon2id$...
 ```
 
-La salida completa, con la hora UTC de cada línea, está en `datos/26-seguridad-local.txt`.
+La salida completa, con la hora UTC de cada línea, está en `datos/26-seguridad-local.txt` y `datos/26-seguridad-aws.txt`.
+
+**En AWS** cambian cuatro cosas: el MetaServer de las llamadas con `curl` es la primera semilla de `DFS_META_SEEDS` (meta1); tcpdump corre en la VM, que usa la red del host (`sudo tcpdump -i any ... -w /tmp/c26.pcap`, y después `tcpdump -r` para contar); los bloques están en `/srv/dfsha/data/` de cada VM (`sudo`); y se agregan dos comprobaciones: que los discos EBS estén cifrados (`aws ec2 describe-volumes`, sin mostrar IDs) y que, desde el PC, solo responda el SSH en la IP pública de cada VM (las IP no se muestran).
 
 ## 5. Resultado esperado y resultado obtenido
 
@@ -165,7 +167,42 @@ Cómo se lee:
 
 ### 5.2 AWS
 
-*Pendiente: ensayo de la fase 4.*
+**Acceso.** Las mismas respuestas que en local, con los usuarios `ana` y `bruno` y la ruta `/demo/secreto.txt` (10,7 MiB, 400 000 líneas con la marca `SECRETO-DFSHA`):
+
+| Intento | Respuesta |
+|---|---|
+| ana baja su archivo | el mismo SHA-256 (`4b7e4697c8561b8a...`) |
+| `GET /fs/ls` sin token, y con un token inventado | 401 `E_AUTH` |
+| `dfs ls /` sin sesión | `error E_AUTH: Tu sesión no existe o venció: corre dfs login` |
+| bruno: `dfs ls /` y `dfs get /demo/secreto.txt` | sin entradas; `error E_NOT_FOUND: /demo/secreto.txt no existe` |
+| bruno: `dfs status` y `dfs useradd` | 403 `E_FORBIDDEN`: esta ruta exige rol de administrador |
+| bruno: `PUT` y `DELETE /locks/{lock_id de ana}` | 403 `E_FORBIDDEN`: el lock es de otro usuario (ana lo soltó después: 200) |
+| pase de bruno contra su bloque / sin pase / contra el bloque de ana / alterado / en un `PUT` | 200 / 401 / 403 "el pase es de otro bloque" / 403 "pase con firma inválida" / 403 "el pase es de otra operación" |
+
+**Canal.** `SSL connection using TLSv1.3 / TLS_AES_256_GCM_SHA384` contra meta1, con el certificado verificado por IP. Con TLS 1.2, contra 8443 y contra 9443, curl sale con el código 35. Sin certificado de cliente, contra 8444 y contra 9444, con el código 56. Con el certificado de dn1, la API interna de meta1 responde `{"error":"E_BAD_REQUEST","message":"body: Field required",...}`.
+
+Captura con tcpdump mientras ana subía y bajaba `/demo/secreto3.txt` (25 900 000 bytes, 700 000 líneas con la marca, 4 bloques):
+
+| Dónde | Paquetes | Descartados | Carga TCP | Con la marca en claro | Puertos |
+|---|---|---|---|---|---|
+| VM5 (el cliente) | 5330 | 0 | 51 963 561 bytes | **0** | 8443: 163; 9443: 5167 |
+| VM1 (meta1 y dn1) | 7205 | 0 | 67 365 351 bytes | **0** | 8444: 247; 9443: 4442; 9444: 2516 |
+
+En la VM5 se capturaron unos 52 MB: el `put` y el `get` de 24,7 MiB. En la VM1 se ve además la réplica entre DataNodes (9444) y las confirmaciones y los latidos (8444).
+
+**Almacenamiento.** El bloque 0 de `/demo/secreto.txt` (hash `1162c6191984b8b9...`) tiene 299 593 líneas con la marca en el cliente. En los tres DataNodes que lo guardan (dn1, dn2 y dn3) mide 8 388 636 bytes, no tiene ninguna línea con la marca y su SHA-256 es distinto en cada uno (`736e11c9...`, `c5d1a00f...`, `02f4c99d...`): cada nodo cifra con su propia clave y un nonce nuevo (DA-09).
+
+```text
+client  0000000   S   E   C   R   E   T   O   -   D   F   S   H   A       l   i
+vm1     0000000 352   } 231 211 254   x 207 365 260   B 364 345 276 313   E   v
+```
+
+- En los 4 DataNodes, ningún archivo de `/srv/dfsha/data` tiene la marca en claro. dn1, dn2 y dn3 guardan 81 bloques de ana; dn4, 3: al volver después de la prueba de un DataNode, el líder le borró las copias que sobraban (DA-12).
+- La clave AES de dn1 está en `/run/secrets/node_key` (32 bytes), fuera del disco de datos.
+- Los 8 discos EBS del clúster (20 GiB en cada VM y 4 GiB de etcd en VM1 a VM3), gp3, tienen `Encrypted=True`.
+- En etcd: `{"password_hash":"$argon2id$v=19$m=65536,t=3,p=4$<sal y hash omitidos>","is_admin":false}`.
+
+**Red.** Desde el PC, en la IP pública de cada una de las 5 VMs, solo responde el 22; 2379, 2380, 8443, 8444, 9443 y 9444 no responden. Las reglas de entrada de `dfsha-sg`: 2379-2380, 8443-8444 y 9443-9444 solo desde el mismo grupo, y 22 solo desde la IP de quien trabaja.
 
 ### 5.3 Lo que se corrigió en el ensayo
 
@@ -173,7 +210,7 @@ En el primer intento de la captura, tcpdump escribía el archivo `.pcap` en una 
 
 ## 6. Conclusión
 
-En el ensayo local se cumple lo que piden la Tabla 21 y RNF6. Solo el dueño accede a sus archivos; sin token, la respuesta es 401, y con lo de otro usuario, 404 en su propio espacio o 403. Un pase de bloque no se puede reutilizar para otro bloque ni alterar. El canal usa TLS 1.3 y rechaza versiones anteriores, la API interna exige certificado de cliente, y en 54 MB de tráfico capturado no aparece nada del contenido. En el disco de los DataNodes los bloques están cifrados y la clave está fuera del disco de datos; las contraseñas, con Argon2id. *La corrida en AWS queda para el ensayo de la fase 4.*
+En el ensayo local se cumple lo que piden la Tabla 21 y RNF6. Solo el dueño accede a sus archivos; sin token, la respuesta es 401, y con lo de otro usuario, 404 en su propio espacio o 403. Un pase de bloque no se puede reutilizar para otro bloque ni alterar. El canal usa TLS 1.3 y rechaza versiones anteriores, la API interna exige certificado de cliente, y en 54 MB de tráfico capturado no aparece nada del contenido. En el disco de los DataNodes los bloques están cifrados y la clave está fuera del disco de datos; las contraseñas, con Argon2id. En AWS se cumple lo mismo: en 52 MB de tráfico del cliente y 67 MB de una VM de control no aparece nada del contenido, los bloques están cifrados en los 4 DataNodes y en discos EBS cifrados, y desde fuera de la VPC solo responde el SSH.
 
 ## 7. Para el video
 

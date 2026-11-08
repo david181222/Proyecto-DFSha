@@ -23,10 +23,10 @@ El enunciado pide "dos clientes sobre un mismo archivo/bloque". En DFSha los dos
 
 | | Ensayo local | AWS |
 |---|---|---|
-| Dónde | `compose.local.yml` en un PC con Windows 11 y Docker Desktop 29.6.1 (Compose 5.3.0); los comandos corren en Git Bash. Clientes: tres sesiones del usuario `conc26` en el contenedor `client` (A, B y R para leer) | VM5, contenedor `client`; dos terminales `./infra/ssh.sh vm5` |
-| Commit | rama `limpieza-final` sobre `main` en `b81b930`, antes de su primer commit. Los cambios de la rama no tocan el comportamiento: docstrings, versión 1.0.0 y documentación del OpenAPI | *(pendiente: ensayo de la fase 4)* |
-| DA-16 | normales, sin `.env`: `DFS_LOCK_LEASE_S=30`, `DFS_LOCK_RENEW_S=10`, `DFS_W=2`, `DFS_BLOCK_MIB=8` | normales |
-| Fecha | 8 de noviembre de 2026, de 02:03 a 02:06 UTC | — |
+| Dónde | `compose.local.yml` en un PC con Windows 11 y Docker Desktop 29.6.1 (Compose 5.3.0); los comandos corren en Git Bash. Clientes: tres sesiones del usuario `conc26` en el contenedor `client` (A, B y R para leer) | 5 VMs t3.small de us-east-1 (Learner Lab de Edwin). Los dos `dfs shell` corren en el contenedor `client` de la VM5, como el usuario `ana` (sesiones `ana` y `ana-b`) |
+| Commit | rama `limpieza-final` sobre `main` en `b81b930`, antes de su primer commit. Los cambios de la rama no tocan el comportamiento: docstrings, versión 1.0.0 y documentación del OpenAPI | `7eedf22` (`main`), desplegado con `./infra/deploy.sh --times scripts/pruebas/pruebas.env` |
+| DA-16 | normales, sin `.env`: `DFS_LOCK_LEASE_S=30`, `DFS_LOCK_RENEW_S=10`, `DFS_W=2`, `DFS_BLOCK_MIB=8` | columna "Pruebas" de la Tabla 19 (`scripts/pruebas/pruebas.env`): solo cambian la espera del líder, la retención y la limpieza. Los que importan aquí son los mismos: `DFS_LOCK_LEASE_S=30`, `DFS_LOCK_RENEW_S=10`, `DFS_W=2` |
+| Fecha | 8 de noviembre de 2026, de 02:03 a 02:06 UTC | 8 de noviembre de 2026, de 14:22 a 14:24 UTC |
 
 ## 4. Pasos
 
@@ -78,7 +78,7 @@ A: close 3                             <- error E_LOCK_LOST
 
 Después de cada caso, R lee: `$C exec -e HOME=/tmp/s26/r client sh -c 'dfs stat /conc.txt && dfs get /conc.txt /tmp/s26/c.txt && cat /tmp/s26/c.txt'`.
 
-En el ensayo, los comandos de A y B le llegaron a cada `dfs shell` por una tubería, con `sleep` entre ellos para fijar el orden (A cierra a los 12 s en los casos 1 y 2, y a los 48 s en el 3; B empieza a los 3 s y a los 36 s), y cada línea de salida lleva la hora UTC en que apareció. La salida completa, con el log de acceso de los MetaServers, está en `datos/26-concurrencia-local.txt`.
+En el ensayo, los comandos de A y B le llegaron a cada `dfs shell` por una tubería, con `sleep` entre ellos para fijar el orden (A cierra a los 12 s en los casos 1 y 2, y a los 48 s en el 3; B empieza a los 3 s y a los 36 s), y cada línea de salida lleva la hora UTC en que apareció. La salida completa, con el log de acceso de los MetaServers, está en `datos/26-concurrencia-local.txt` y `datos/26-concurrencia-aws.txt`. En AWS se corrió lo mismo en la VM5, con `C="docker compose"`, el usuario `ana` y la ruta `/demo/conc.txt`.
 
 ## 5. Resultado esperado y resultado obtenido
 
@@ -137,11 +137,37 @@ Cómo se lee:
 
 ### 5.2 AWS
 
-*Pendiente: ensayo de la fase 4.*
+Los tres casos dieron lo mismo que en local, con las mismas esperas.
+
+```text
+14:22:46  A  dfs> fd 3: /demo/conc.txt en modo w, versión 0, 0 bytes
+14:22:49  --  B pide el lock (open /demo/conc.txt w --wait 30)
+14:22:58  A  dfs> fd 3 cerrado: /demo/conc.txt versión 1
+14:22:58  B  dfs> fd 3: /demo/conc.txt en modo w, versión 1, 0 bytes
+14:22:58  B  dfs> fd 3 cerrado: /demo/conc.txt versión 2
+14:23:00  R  contenido: escrito-por-B
+
+14:23:01  A  dfs> fd 3: /demo/conc.txt en modo rw, versión 2, 13 bytes
+14:23:04  B  dfs> error E_LOCKED: otro cliente tiene el lock de /demo/conc.txt
+14:23:05  B  error E_LOCKED: El archivo está bloqueado por otro cliente; intenta más tarde
+14:23:12  A  dfs> fd 3 cerrado: /demo/conc.txt versión 3
+
+14:23:14  A  dfs> fd 3: /demo/conc.txt en modo w, versión 3, 0 bytes
+14:23:49  --  B pide el lock (open /demo/conc.txt w --wait 30)
+14:23:50  B  dfs> fd 3: /demo/conc.txt en modo w, versión 3, 0 bytes
+14:23:50  B  dfs> fd 3 cerrado: /demo/conc.txt versión 4
+14:24:01  A  dfs> error E_LOCK_LOST: perdiste el lock o alguien publicó otra versión; tus cambios no se publicaron
+14:24:04  R  contenido: a-tiempo-B
+```
+
+- **Caso 1.** B pidió el lock a las 14:22:49 y entró a las 14:22:58, en el mismo segundo en que A publicó la versión 1; partió de ella y publicó la 2.
+- **Caso 2.** Con A dentro, los dos intentos de B con espera 0 recibieron 423 al instante; A publicó después la versión 3.
+- **Caso 3.** El lease de A llevaba 36 s sin renovarse cuando B entró sin esperar y publicó la versión 4. El `close` de A, 47 s después de abrir, recibió `E_LOCK_LOST`, y la versión 4 quedó intacta.
+- **Códigos HTTP** (log de acceso de meta1): `POST /api/v1/locks` → `423 Locked` a las 14:23:04 y 14:23:05, y `POST /api/v1/uploads` → `409 Conflict` a las 14:24:01, el `close` tardío de A.
 
 ## 6. Conclusión
 
-En el ensayo local, DFSha cumple la política de DA-08 con dos clientes sobre el mismo archivo y el mismo bloque: un solo escritor a la vez; el segundo espera en la fila y parte de la versión publicada, o recibe 423 si pidió espera 0; y un escritor cuyo lock venció recibe 409 y no pisa la versión de otro (G4). *La corrida en AWS queda para el ensayo de la fase 4.*
+En el ensayo local, DFSha cumple la política de DA-08 con dos clientes sobre el mismo archivo y el mismo bloque: un solo escritor a la vez; el segundo espera en la fila y parte de la versión publicada, o recibe 423 si pidió espera 0; y un escritor cuyo lock venció recibe 409 y no pisa la versión de otro (G4). En AWS, sobre el clúster de 5 VMs, los tres casos dieron el mismo resultado.
 
 ## 7. Para el video
 
