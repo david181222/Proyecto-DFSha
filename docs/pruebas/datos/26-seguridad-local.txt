@@ -1,0 +1,122 @@
+# Tarea 26 · Seguridad, ensayo local (compose.local.yml), 2026-11-08 UTC
+# Salida tal cual de los comandos de docs/pruebas/26-seguridad.md, sección 4. Hora UTC de cada línea.
+# Ningún JWT, pase ni contraseña aparece en este archivo: quedaron dentro del contenedor client.
+
+02:06:43  --  1. ana26 sube /secreto.txt: 12 MiB de texto con la marca SECRETO-DFSHA-26 en cada línea (2 bloques)
+02:06:44  ana26  13981000 /tmp/s26/secreto.txt
+02:06:44  ana26  líneas con la marca: 349525
+02:06:44  ana26  87e575f2041b786bda98c410ec6769ca2e622a33f2998dbcd94927d63a03cfb1  /tmp/s26/secreto.txt
+02:06:48  ana26  /secreto.txt: versión 1, 13.3 MiB en 2 bloques (2 enviados, 0 ya estaban), 0.94 s, 14.2 MiB/s
+02:06:50  ana26  /secreto.txt  versión 1  13981000 bytes  bloques de 8388608 bytes  sha256 87e575f2041b
+02:06:50  ana26  índice  hash              tamaño  nodos
+02:06:50  ana26       0  446669919b7b     8388608  dn1, dn2, dn3
+02:06:50  ana26       1  4c723dd2bacd     5592392  dn2, dn3, dn4
+02:06:50  --  2. Acceso autorizado: ana26 baja su archivo y compara el SHA-256
+02:06:53  ana26  /secreto.txt: versión 1, 13.3 MiB en 2 bloques, 0.36 s, 36.6 MiB/s -> /tmp/s26/secreto-copia.txt
+02:06:53  ana26  87e575f2041b786bda98c410ec6769ca2e622a33f2998dbcd94927d63a03cfb1  /tmp/s26/secreto.txt
+02:06:53  ana26  87e575f2041b786bda98c410ec6769ca2e622a33f2998dbcd94927d63a03cfb1  /tmp/s26/secreto-copia.txt
+02:06:53  --  3. Sin token: la API pública del MetaServer responde 401
+02:06:54  curl  {"error":"E_AUTH","message":"falta el JWT en Authorization: Bearer","retryable":false}  (HTTP 401)
+02:06:55  curl  {"error":"E_AUTH","message":"JWT ausente, inválido o vencido","retryable":false}  (HTTP 401)
+02:06:58  sin-sesion  error E_AUTH: Tu sesión no existe o venció: corre dfs login
+02:06:58  --  4. Ruta de otro usuario: bruno26 no ve /secreto.txt de ana26; para él, /secreto.txt es una ruta de su propio espacio
+02:07:00  ana26  -     13981000    1  2026-11-08 02:06  secreto.txt
+02:07:02  bruno26  (dfs ls / terminó; sin entradas si no imprimió nada)
+02:07:05  bruno26  error E_NOT_FOUND: /secreto.txt no existe
+02:07:05  --  5. Rutas /admin sin rol de administrador: 403
+02:07:07  bruno26  error E_FORBIDDEN: esta ruta exige rol de administrador
+02:07:09  bruno26  Repeat for confirmation:error E_FORBIDDEN: esta ruta exige rol de administrador
+
+02:07:47  --  6. lock_id de otro usuario: ana26 toma el lock de /secreto.txt; bruno26 intenta renovarlo y soltarlo
+02:07:48  ana26  {"lock_id":"8ffa1b8e47fbe8d","lease_s":30}
+02:07:49  curl  {"error":"E_FORBIDDEN","message":"el lock 8ffa1b8e47fbe8d es de otro usuario","retryable":false}  (HTTP 403)
+02:07:49  curl  {"error":"E_FORBIDDEN","message":"el lock 8ffa1b8e47fbe8d es de otro usuario","retryable":false}  (HTTP 403)
+02:07:50  curl  {"ok":true}  (HTTP 200)
+02:07:50  --  7. Pases de bloque: bruno26 sube /b.txt y pide su manifiesto (pase de lectura de su bloque)
+02:07:52  bruno26  /b.txt: versión 1, 0.0 MiB en 1 bloques (1 enviados, 0 ya estaban), 0.32 s, 0.0 MiB/s
+02:07:53  info  bloque de bruno26: cb5730c498d733a5... en 10.88.0.33:9443
+02:07:53  info  bloque 0 de ana26: 446669919b7b1197... en 10.88.0.31:9443
+02:07:53  --  7a. Con su propio pase, bruno26 lee su bloque: 200
+02:07:54  bruno26  (HTTP 200) contenido: archivo de bruno26
+02:07:55  --  7b. Sin pase: 401
+02:07:56  bruno26  {"error":"E_AUTH","message":"falta el pase del bloque","retryable":false}  (HTTP 401)
+02:07:56  --  7c. El pase de bruno26 contra el bloque de ana26: 403 (pase de otro bloque)
+02:07:57  bruno26  {"error":"E_FORBIDDEN","message":"el pase es de otro bloque","retryable":false}  (HTTP 403)
+02:07:57  --  7d. bruno26 altera su pase: user=ana26 y el hash del bloque de ana26, con la firma original: 403 (firma inválida)
+02:07:58  bruno26  {"error":"E_FORBIDDEN","message":"pase con firma inválida","retryable":false}  (HTTP 403)
+02:07:58  --  7e. Un pase de lectura usado para escribir (PUT): 403 (pase de otra operación)
+02:07:59  bruno26  {"error":"E_FORBIDDEN","message":"el pase es de otra operación","retryable":false}  (HTTP 403)
+
+02:08:40  --  8. TLS: la API pública negocia TLS 1.3 y rechaza TLS 1.2
+02:08:42  curl  * SSL connection using TLSv1.3 / TLS_AES_256_GCM_SHA384 / X25519MLKEM768 / id-ecPublicKey
+02:08:42  curl  *  subjectAltName: host "10.88.0.21" matched cert's IP address!
+02:08:42  curl  *  SSL certificate verify ok.
+02:08:43  curl  curl salió con código 35
+02:08:44  curl  curl salió con código 35
+02:08:44  --  9. mTLS: la API interna (8444 y 9444) corta el handshake sin certificado de cliente; con el de un nodo, responde
+02:08:45  client  curl salió con código 56
+02:08:46  client  curl salió con código 56
+02:08:47  dn1  {"error":"E_BAD_REQUEST","message":"body: Field required","retryable":false}  (HTTP 400)
+
+# Primer intento de la captura (10), descartado: tcpdump escribía en una carpeta compartida de Windows y
+# capturó solo unos 13 MB de unos 54 MB. No mostró la marca, pero no anotó los paquetes descartados.
+02:08:47  --  10. tcpdump en el cliente (8443 y 9443) y en dn1 (8444, 9443 y 9444) durante un put y un get de un archivo nuevo con la marca
+02:09:26  tcpdump  cliente.pcap: 837 paquetes, 13367321 bytes capturados; con la marca en claro: 0
+02:09:27  tcpdump    paquetes con el puerto      40 .8443 
+02:09:27  tcpdump    paquetes con el puerto      44 .8443:
+02:09:27  tcpdump    paquetes con el puerto     399 .9443 
+02:09:27  tcpdump    paquetes con el puerto     354 .9443:
+02:09:32  tcpdump  dn1.pcap: 1184 paquetes, 21478897 bytes capturados; con la marca en claro: 0
+02:09:33  tcpdump    paquetes con el puerto      41 .8444 
+02:09:33  tcpdump    paquetes con el puerto      62 .8444:
+02:09:33  tcpdump    paquetes con el puerto     380 .9443 
+02:09:33  tcpdump    paquetes con el puerto     332 .9443:
+02:09:33  tcpdump    paquetes con el puerto     122 .9444 
+02:09:33  tcpdump    paquetes con el puerto     247 .9444:
+
+# Captura definitiva (10): tcpdump escribe dentro de su contenedor y anota sus estadísticas.
+02:10:24  --  10. tcpdump en el contenedor client (8443 y 9443) y en dn1 (8444, 9443 y 9444) durante un put y un get de un archivo nuevo con la marca
+02:10:26  ana26  27101634 bytes, 645277 líneas con la marca
+02:10:33  ana26  /secreto3.txt: versión 1, 25.8 MiB en 4 bloques (4 enviados, 0 ya estaban), 1.06 s, 24.5 MiB/s
+02:10:35  ana26  /secreto3.txt  versión 1  27101634 bytes  bloques de 8388608 bytes  sha256 e396f38ab178
+02:10:35  ana26  índice  hash              tamaño  nodos
+02:10:35  ana26       0  181081b42c68     8388608  dn1, dn2, dn3
+02:10:35  ana26       1  aeb58b9df713     8388608  dn2, dn3, dn4
+02:10:35  ana26       2  77dbd27d2496     8388608  dn3, dn4, dn1
+02:10:35  ana26       3  b9a621c93bf1     1935810  dn4, dn1, dn2
+02:10:37  ana26  /secreto3.txt: versión 1, 25.8 MiB en 4 bloques, 0.74 s, 34.8 MiB/s -> /tmp/s26/secreto3-copia.txt
+02:10:37  ana26  e396f38ab178e39f327ce9d3621adb900c64c5c257a38a088aa9cdef1314faba  /tmp/s26/secreto3.txt
+02:10:37  ana26  e396f38ab178e39f327ce9d3621adb900c64c5c257a38a088aa9cdef1314faba  /tmp/s26/secreto3-copia.txt
+02:10:53  tcpdump-cliente  2817 packets captured
+02:10:53  tcpdump-cliente  2817 packets received by filter
+02:10:53  tcpdump-cliente  0 packets dropped by kernel
+02:10:53  tcpdump-cliente  2817 paquetes; 54469509 bytes de carga TCP
+02:11:02  tcpdump-cliente  con la marca SECRETO-DFSHA-26 en claro: 0
+02:11:02  tcpdump-cliente    paquetes del puerto 8443: 84
+02:11:02  tcpdump-cliente    paquetes del puerto 9443: 2733
+02:10:53  tcpdump-dn1  2008 packets captured
+02:10:53  tcpdump-dn1  2008 packets received by filter
+02:10:53  tcpdump-dn1  0 packets dropped by kernel
+02:10:53  tcpdump-dn1  2008 paquetes; 54480460 bytes de carga TCP
+02:11:02  tcpdump-dn1  con la marca SECRETO-DFSHA-26 en claro: 0
+02:11:02  tcpdump-dn1    paquetes del puerto 8444: 90
+02:11:02  tcpdump-dn1    paquetes del puerto 9443: 1159
+02:11:02  tcpdump-dn1    paquetes del puerto 9444: 759
+
+02:11:24  --  11. Disco: el bloque 0 de /secreto.txt (446669919b7b..., en dn1, dn2 y dn3), en claro en el cliente y como lo guarda dn1
+02:11:25  client  en el cliente: 8388608 bytes, sha256 446669919b7b1197..., 209715 líneas con la marca
+02:11:25  client  0000000   S   E   C   R   E   T   O   -   D   F   S   H   A   -   2   6
+02:11:25  client  0000016       l   i   n   e   a       0   0   0   0   0   0   0       d
+02:11:25  client  0000032   e       a   n   a   2   6  \n   S   E   C   R   E   T   O   -
+02:11:28  dn1  7 bloques de ana26 en /data/ana26; archivos de /data con la marca en claro: 0
+02:11:29  dn2  8 bloques de ana26 en /data/ana26; archivos de /data con la marca en claro: 0
+02:11:30  dn3  8 bloques de ana26 en /data/ana26; archivos de /data con la marca en claro: 0
+02:11:31  dn4  7 bloques de ana26 en /data/ana26; archivos de /data con la marca en claro: 0
+02:11:32  dn1  contenido de /data: .disk_id ana26 bruno26 conc26 smoke 
+02:11:32  --  12. Contraseñas en etcd: Argon2id (se muestran solo los parámetros, sin la sal ni el hash)
+02:11:33  etcd1  {"password_hash":"$argon2id$v=19$m=65536,t=3,p=4$<sal y hash omitidos>","is_admin":false}
+02:11:43  dn1  en dn1: /data/ana26/446669919b7b1197... 8388636 bytes (8388608 + 12 de nonce + 16 de tag), sha256 del archivo f9cb27b9f312fc11..., líneas con la marca: 0
+02:11:43  dn1  0000000 342   X   7   l 325 206 233 200 033  \n   q  \0 036 352 237 023
+02:11:43  dn1  0000016 314  \b 300   f 005   b 036   e  \r   #   Y   ?   l 364   [   q
+02:11:43  dn1  0000032 366 031   J   M   t 203 303 251 340   R 257 326 321   E  \t 275
+02:11:44  dn1  la clave AES del nodo no está en /data: /run/secrets/node_key (32 bytes)
